@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lua-obfuscator"
+version = "1.0.0"
+description = "Obfuscate Lua source code: rename locals, encrypt strings, hide control flow"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+keywords = ["lua", "obfuscator", "obfuscation", "minifier", "roblox"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Lua",
+    "Topic :: Software Development :: Obfuscation",
+    "License :: OSI Approved :: MIT License",
+]
+dependencies = []
+
+[project.optional-dependencies]
+test = ["lupa>=2.0"]
+
+[project.scripts]
+lua-obfuscator = "luaobf.cli:main"
+
+[tool.setuptools]
+packages = ["luaobf"]

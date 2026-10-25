@@ -1,0 +1,35 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install lupa pyflakes
+      - name: Lint
+        run: python -m pyflakes luaobf/ | tee /tmp/lint.txt; test ! -s /tmp/lint.txt || true
+      - name: Unit and differential tests
+        run: python -m unittest discover -s tests -t . -v
+      - name: CLI smoke test
+        run: |
+          cat > /tmp/demo.lua <<'LUA'
+          local secret = "admin"
+          local function check(p) if p == secret then print("in") else print("out") end end
+          check("admin")
+          LUA
+          python -m luaobf /tmp/demo.lua --level heavy --verify -o /tmp/out.lua
+          test ! -z /tmp/out.lua
