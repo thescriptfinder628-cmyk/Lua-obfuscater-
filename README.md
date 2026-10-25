@@ -170,6 +170,33 @@ stdout, exit status and the *kind* of any error.
 
 ---
 
+## Attack it yourself
+
+The project ships the attacker, because a protection claim you cannot measure is marketing:
+
+```bash
+python tools/attack_demo.py protected.lua --original script.lua
+```
+
+It runs your build with the instrumentation a real analyst uses — `string.char` hook,
+`table.concat` hook, a registry/memory walk, and plain output observation — and reports how
+much it got back. Measured on a script with 6 string literals (including an API key):
+
+| Build | `string.char` + `table.concat` | memory walk | output watch |
+|-------|-------------------------------|-------------|--------------|
+| `medium` (single cipher) | **6/6 literals recovered** | 6/6 | 6/6 |
+| `nightmare` (per-string VM) | **0/6 recovered** | 0/6* | **6/6** |
+
+`*` the walk cannot see function locals — a real process-memory dump can, so treat that cell as
+"still vulnerable", not as safe.
+
+So the honest summary of what changed: the **cheap, scriptable dumpers are closed** — the thing
+that lets a beginner steal your keys in ten lines is gone. What remains is observation: your
+program must eventually hand data to `print`, an HTTP client or the GPU in plaintext, and that
+moment can be watched. No obfuscator on earth changes that.
+
+---
+
 ## Honest limits
 
 You asked for something that cannot be deobfuscated. That does not exist for *any* tool, and
@@ -184,9 +211,11 @@ here is exactly why:
 * **Bytecode is separate.** `luac` output needs its own protection.
 
 What this tool *does* achieve is the practical ceiling: no readable names, strings, structure
-or comments; execution order hidden behind randomized states; string recovery turned into a
-per-string reverse-engineering job; and a verified-identical build. That stops casual copying,
-"open it in an editor", and every grep-based attack — and makes serious analysis expensive.
+or comments; execution order hidden behind randomized states; a string layer with no fixed
+algorithm, no fixed opcode dispatch, and no `string.char`/`table.concat` for a dumper to hook
+(measured above: 0/6 recovered by the cheap dumpers); and a verified-identical build. That stops
+casual copying, "open it in an editor", every grep-based attack, and the standard Lua string
+dumpers — and makes serious analysis expensive.
 
 Also be aware: renaming changes identifiers that appear in **error messages** and
 `debug.getinfo`; `--anti-debug` will fire if a tracing hook is installed (some anti-cheats
@@ -208,6 +237,7 @@ luaobf/
   obfuscator.py cli.py verify.py      pipeline, CLI, differential checker
 playground/index.html                 the blue Forsakenis4 web app
 tools/playground.py                   zero-dependency server for it
+tools/attack_demo.py                  measures how much an attacker recovers
 tools/check_realworld.py              optional real-library stress test
 tests/                                124 tests + a Lua corpus
 ```
@@ -225,6 +255,10 @@ against the original's output. Development was driven by them — they caught a 
 mismatch, a mathematically wrong opaque predicate (`J*J+1` is not always odd), a shuffled
 execution order in the flattener, `repeat`/`until` scope breakage, and `break` escaping the
 state machine.
+
+The attack tool is part of the suite too, so the security claims can never silently rot:
+`tests/test_attack_demo.py` asserts that a cipher build *does* leak to cheap hooks and a
+hardened build *does not*.
 
 Optional real-world check (MIT-licensed libraries from GitHub):
 
