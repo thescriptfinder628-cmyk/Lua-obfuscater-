@@ -1,22 +1,35 @@
 """A per-string bytecode VM for string literals.
 
-Every string gets its own tiny program: a list of 1-8 operations, each with its
+Every string gets its own tiny program: a list of 3-8 operations, each with its
 own operand.  The bytes are stored *already transformed by the inverse program*,
 so the runtime VM replays the program to recover the plaintext.
 
-    payload := [op_count] { [opcode] [operand] } * op_count [cipher bytes…]
+    payload := [op_count][perm: 4 bytes]{[emitted opcode][operand]} * n[cipher…]
 
-Opcodes (all pure arithmetic -- no bitwise operators, so this runs on Lua 5.1):
+Three things make this harder to attack than a normal string decryptor:
+
+1. **No fixed program.**  Opcodes, operands, count and order are random per
+   string, so there is no single algorithm to reverse.
+
+2. **No fixed dispatch.**  The opcode *numbers* are permuted per payload: the
+   payload carries a 4-byte map, and the interpreter builds a table of closures
+   from it.  There is no ``if op == 1 then …`` chain to pattern-match, and what
+   opcode 3 means in one build means nothing in another.
+
+3. **No ``string.char`` and mostly no ``table.concat``.**  Characters are cut
+   out of an embedded byte-table with ``string.sub``, and short strings are
+   assembled with ``..``.  The two hooks every Lua string dumper installs
+   (``string.char`` and ``table.concat``) therefore see nothing useful.
+
+Opcodes (pure arithmetic, no bitwise operators -> runs on Lua 5.1):
 
     1  x = (x + k) % 256
-    2  x = (x * k) % 256            (k is odd, hence invertible mod 256)
-    3  x = (x * 2) % 256 + floor(x / 128)     -- rotate left 1 bit
-    4  x = floor(x / 2) + (x % 2) * 128       -- rotate right 1 bit
+    2  x = (x * k) % 256                        (k is odd, invertible mod 256)
+    3  x = (x * 2) % 256 + floor(x / 128)       -- rotate left 1 bit
+    4  x = floor(x / 2) + (x % 2) * 128         -- rotate right 1 bit
 
-Why this is stronger than a single cipher: there is no fixed algorithm to
-invert.  Two strings in the same build use different opcodes, different
-operands and different lengths, so recognising "the" decoder and reversing it
-once does not decode the others; a dumper has to actually run the VM.
+What still defeats it: the plaintext has to exist in memory before the program
+uses it.  ``tools/attack_demo.py --strategy memory`` shows exactly that.
 """
 
 from __future__ import annotations
@@ -24,7 +37,7 @@ from __future__ import annotations
 import base64
 import random
 
-#: opcode -> (forward, inverse).  Forward decodes cipher -> plaintext.
+#: canonical opcode -> (forward, inverse).  Forward decodes cipher -> plaintext.
 OPS = {
     1: (lambda x, k: (x + k) % 256, lambda x, k: (x - k) % 256),
     2: (lambda x, k: (x * k) % 256, lambda x, k: (x * pow(k, -1, 256)) % 256),
@@ -33,7 +46,13 @@ OPS = {
 }
 
 MIN_OPS = 3
-MAX_OPS = 7
+MAX_OPS = 8
+
+#: Strings at most this long are assembled with `..` instead of table.concat,
+#: which keeps the plaintext away from the one hook that dumps everything.
+CONCAT_THRESHOLD = 96
+
+HEADER_SIZE = 5  # op count + 4-byte permutation
 
 
 def _random_ops(rng: random.Random, count: int) -> list[tuple[int, int]]:
@@ -41,7 +60,9 @@ def _random_ops(rng: random.Random, count: int) -> list[tuple[int, int]]:
     for _ in range(count):
         opcode = rng.choice((1, 1, 2, 2, 3, 4))
         if opcode == 2:
-            operand = rng.choice([3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 251, 253])
+            operand = rng.choice(
+                [3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 251, 253]
+            )
         elif opcode in (3, 4):
             operand = 0
         else:
@@ -56,37 +77,48 @@ def encode(data: bytes, rng: random.Random) -> str:
     ops = _random_ops(rng, count)
 
     cipher = list(data)
-    # undo the program, last operation first
     for opcode, operand in reversed(ops):
         inverse = OPS[opcode][1]
         cipher = [inverse(byte, operand) for byte in cipher]
 
-    payload = bytes([count])
+    # per-payload opcode permutation: canonical op i is emitted as emitted[i]
+    emitted = [1, 2, 3, 4]
+    rng.shuffle(emitted)
+
+    payload = bytes([count]) + bytes(emitted)
     for opcode, operand in ops:
-        payload += bytes([opcode, operand])
+        payload += bytes([emitted[opcode - 1], operand])
     payload += bytes(cipher)
     return base64.b64encode(payload).decode("ascii")
 
 
 def decode(payload: str) -> bytes:
-    """Reference implementation used by the tests."""
+    """Reference implementation (used by the tests)."""
     raw = base64.b64decode(payload)
     count = raw[0]
-    ops = [(raw[1 + i * 2], raw[2 + i * 2]) for i in range(count)]
-    data = list(raw[1 + count * 2 :])
+    emitted = list(raw[1:5])
+    # emitted[i-1] is the id used for canonical opcode i
+    canonical = {eid: index + 1 for index, eid in enumerate(emitted)}
+
+    ops = [(canonical[raw[2 * j + 3]], raw[2 * j + 4]) for j in range(1, count + 1)]
+    data = list(raw[HEADER_SIZE + 2 * count :])
     for opcode, operand in ops:
         forward = OPS[opcode][0]
         data = [forward(byte, operand) for byte in data]
     return bytes(data)
 
 
-def runtime_source(names: dict[str, str]) -> str:
-    """Lua implementation of the VM.
+def _byte_literal() -> str:
+    """A Lua string literal containing every byte value 0…255."""
+    from .unparser import quote_string
 
-    ``names`` supplies the local names so the generated code blends into the
-    rest of the obfuscated chunk (and gets renamed like everything else).
-    """
+    return quote_string(bytes(range(256)))
+
+
+def runtime_source(names: dict[str, str]) -> str:
+    """Lua implementation of the VM, using the caller's local names."""
     text = (
+        'local $bytes=' + _byte_literal() + "\n"
         'local $alpha="ABC…"\n'
         "local $rev={}\n"
         "for $i=1,64 do $rev[($alpha):byte($i)]=$i-1 end\n"
@@ -109,35 +141,41 @@ def runtime_source(names: dict[str, str]) -> str:
         "    end\n"
         "  end\n"
         "  local $n=$raw[1]\n"
+        "  local $perm={}\n"
+        "  for $i=1,4 do $perm[$i]=$raw[1+$i] end\n"
+        "  local $sem={\n"
+        "    function($x,$k) return ($x+$k)%256 end,\n"
+        "    function($x,$k) return ($x*$k)%256 end,\n"
+        "    function($x,$k) return ($x*2)%256+math.floor($x/128) end,\n"
+        "    function($x,$k) return math.floor($x/2)+($x%2)*128 end,\n"
+        "  }\n"
+        "  local $fns={}\n"
+        "  for $i=1,4 do $fns[$perm[$i]]=$sem[$i] end\n"
         "  local $data={}\n"
-        "  for $i=1,#$raw-1-2*$n do $data[$i]=$raw[$i+1+2*$n] end\n"
+        "  local $off=5+2*$n\n"
+        "  for $i=1,#$raw-$off do $data[$i]=$raw[$off+$i] end\n"
         "  for $j=1,$n do\n"
-        "    local $op=$raw[2*$j]\n"
-        "    local $k=$raw[2*$j+1]\n"
-        "    local $i=1\n"
-        "    while $i<=#$data do\n"
-        "      local $x=$data[$i]\n"
-        "      if $op==1 then $x=($x+$k)%256\n"
-        "      elseif $op==2 then $x=($x*$k)%256\n"
-        "      elseif $op==3 then $x=($x*2)%256+math.floor($x/128)\n"
-        "      elseif $op==4 then $x=math.floor($x/2)+($x%2)*128 end\n"
-        "      $data[$i]=$x\n"
-        "      $i=$i+1\n"
-        "    end\n"
+        "    local $fn=$fns[$raw[4+2*$j]]\n"
+        "    local $k=$raw[5+2*$j]\n"
+        "    for $i=1,#$data do $data[$i]=$fn($data[$i],$k) end\n"
         "  end\n"
-        "  local $chars={}\n"
-        "  for $i=1,#$data do $chars[$i]=string.char($data[$i]) end\n"
-        "  $hit=table.concat($chars)\n"
-        "  $cache[$s]=$hit\n"
-        "  return $hit\n"
+        "  local $out,$chars='',{}\n"
+        "  if #$data<=" + str(CONCAT_THRESHOLD) + " then\n"
+        "    for $i=1,#$data do $out=$out..($bytes):sub($data[$i]+1,$data[$i]+1) end\n"
+        "  else\n"
+        "    for $i=1,#$data do $chars[$i]=($bytes):sub($data[$i]+1,$data[$i]+1) end\n"
+        "    $out=table.concat($chars)\n"
+        "  end\n"
+        "  $cache[$s]=$out\n"
+        "  return $out\n"
         "end\n"
     )
-    text = text.replace("ABC…", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
-    # longest tokens first so no short name can clobber part of a longer one
+    text = text.replace(
+        "ABC…", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    )
     for token in sorted(names, key=len, reverse=True):
         text = text.replace("$" + token, names[token])
     return text
 
 
-#: Local names the VM runtime needs.  ``dec`` must match the Encoder's decoder.
-NAME_TOKENS = "alpha rev cache dec s hit raw buf bits i v pw n data j op k x chars".split()
+NAME_TOKENS = "alpha rev cache dec s hit raw buf bits i v pw n perm sem fns data j fn k x out chars bytes off".split()
