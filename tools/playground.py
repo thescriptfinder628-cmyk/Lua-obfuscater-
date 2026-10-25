@@ -26,7 +26,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from luaobf.lexer import LuaSyntaxError  # noqa: E402
+from luaobf.lower import LoweringError  # noqa: E402
 from luaobf.obfuscator import PRESETS, obfuscate_source, preset  # noqa: E402
+from luaobf.targets import TARGETS  # noqa: E402
 from luaobf.verify import VerificationUnavailable, verify  # noqa: E402
 
 PAGE = os.path.join(ROOT, "playground", "index.html")
@@ -44,17 +46,32 @@ def obfuscate_request(payload: dict) -> tuple[int, dict]:
     if level not in PRESETS:
         return 400, {"error": f"unknown level {level!r}"}
 
+    target = payload.get("target", "auto")
+    if target not in ("auto", *TARGETS):
+        return 400, {"error": f"unknown target {target!r}"}
+
     seed = payload.get("seed")
     try:
         seed = int(seed) if seed is not None else None
     except (TypeError, ValueError):
         return 400, {"error": "`seed` must be an integer"}
 
-    options = preset(level, seed=seed)
+    options = preset(level, seed=seed, target=target)
+    if payload.get("anti_debug"):
+        options.anti_debug = True
+    brand = payload.get("brand")
+    if isinstance(brand, str) and brand.strip():
+        options.brand = brand.strip()[:120]
+    strings = payload.get("strings")
+    if strings in ("cipher", "vm"):
+        options.string_mode = strings
+
     try:
         result = obfuscate_source(code, options, filename="<playground>")
     except LuaSyntaxError as exc:
         return 400, {"error": str(exc), "line": exc.line, "col": exc.col}
+    except LoweringError as exc:
+        return 400, {"error": str(exc)}
     except Exception as exc:  # noqa: BLE001 - report, don't crash the server
         traceback.print_exc()
         return 500, {"error": f"internal error: {type(exc).__name__}: {exc}"}

@@ -178,6 +178,13 @@ class Unparser:
             return quote_string(node.value), PRIMARY
         if isinstance(node, A.Paren):
             return "(" + self.expr(node.expr) + ")", PRIMARY
+        if isinstance(node, A.IfExpr):
+            parts = []
+            for i, (cond, value) in enumerate(node.clauses):
+                parts.append(cat(["if" if i == 0 else "elseif", self.expr(cond), "then", self.expr(value)]))
+            parts.append("else")
+            parts.append(self.expr(node.orelse))
+            return " ".join(parts), 1
         if isinstance(node, A.Function):
             return self.function_expr(node), 1
         if isinstance(node, A.Table):
@@ -339,6 +346,11 @@ class Unparser:
             return "::" + node.name + "::"
         if isinstance(node, A.Empty):
             return ""
+        if isinstance(node, A.TypeDecl):
+            # types are compile-time only: dropping them removes information
+            return ""
+        if isinstance(node, A.Continue):
+            return "continue"
         raise TypeError(f"cannot unparse statement {type(node).__name__}")
 
     def chunk(self, node: A.Chunk) -> str:

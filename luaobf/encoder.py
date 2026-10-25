@@ -28,6 +28,7 @@ import math
 import random
 
 from . import ast_nodes as A
+from . import stringvm
 from .renamer import NameGenerator
 
 #: Odd multipliers -- every one is invertible modulo 256.
@@ -111,14 +112,19 @@ class Encoder:
         rng: random.Random,
         encrypt_numbers: bool = True,
         encrypt_keys: bool = True,
+        string_mode: str = "cipher",
     ) -> None:
+        if string_mode not in ("cipher", "vm"):
+            raise ValueError(f"unknown string mode {string_mode!r}")
         self.rng = rng
         self.ngen = ngen
+        self.string_mode = string_mode
         self.encrypt_numbers = encrypt_numbers
         self.encrypt_keys = encrypt_keys
         #: every local name the generated runtime will use -- generated once so
         #: the decoder's own name matches the call sites we emit
-        self.names = {tok: ngen.next() for tok in _NAME_TOKENS}
+        tokens = stringvm.NAME_TOKENS if string_mode == "vm" else _NAME_TOKENS
+        self.names = {tok: ngen.next() for tok in tokens}
         self.decoder_name = self.names["dec"]
         self.uses_decoder = False
         self.strings_seen = 0
@@ -127,13 +133,18 @@ class Encoder:
         """Lua source of the decoder, or an empty string if it is not needed."""
         if not self.uses_decoder:
             return ""
+        if self.string_mode == "vm":
+            return stringvm.runtime_source(self.names)
         return runtime_source(self.names)
 
     # -- literal builders --------------------------------------------------
 
     def decoder_call(self, data: bytes) -> A.Expr:
         self.uses_decoder = True
-        payload = encode_payload(data, self.rng).encode("ascii")
+        if self.string_mode == "vm":
+            payload = stringvm.encode(data, self.rng).encode("ascii")
+        else:
+            payload = encode_payload(data, self.rng).encode("ascii")
         return A.Call(A.Name(self.decoder_name), [A.String(payload, None)])
 
     def encode_string(self, node: A.String, as_key: bool = False) -> A.Expr:

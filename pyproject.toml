@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lua-obfuscator"
-version = "1.0.0"
-description = "Obfuscate Lua source code: rename locals, encrypt strings, hide control flow"
+version = "2.0.0"
+description = "Forsakenis4: maximum-strength Lua/Luau obfuscator with multi-dialect output"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
-keywords = ["lua", "obfuscator", "obfuscation", "minifier", "roblox"]
+keywords = ["lua", "luau", "luajit", "obfuscator", "obfuscation", "roblox", "control-flow-flattening"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Lua",
@@ -23,6 +23,7 @@ test = ["lupa>=2.0"]
 
 [project.scripts]
 lua-obfuscator = "luaobf.cli:main"
+forsakenis4 = "luaobf.cli:main"
 
 [tool.setuptools]
 packages = ["luaobf"]

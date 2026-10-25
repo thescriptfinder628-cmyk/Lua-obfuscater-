@@ -386,3 +386,34 @@ class Paren(Expr):
 
     def __init__(self, expr: Expr) -> None:
         self.expr = expr
+
+
+class Continue(Stat):
+    """Luau ``continue``.  Lowered per target by :mod:`luaobf.lower`."""
+
+    def __init__(self) -> None:
+        pass
+
+
+class IfExpr(Expr):
+    """Luau ``if c then a elseif d then b else c`` expression."""
+
+    _fields = ("clauses", "orelse")
+
+    def __init__(self, clauses: list[tuple[Expr, Expr]], orelse: Expr) -> None:
+        self.clauses = clauses
+        self.orelse = orelse
+
+
+class TypeDecl(Stat):
+    """A Luau ``type X = ...`` / ``export type X<T> = ...`` declaration.
+
+    Carries no runtime meaning: the obfuscator drops it (types are compile-time
+    only, and removing them is itself a small piece of intel denial).
+    """
+
+    _fields = ("name", "is_export")
+
+    def __init__(self, name: str, is_export: bool = False) -> None:
+        self.name = name
+        self.is_export = is_export

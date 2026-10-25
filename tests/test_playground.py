@@ -46,6 +46,28 @@ class PlaygroundApiTests(unittest.TestCase):
         self.assertIn("verified", data)
         self.assertFalse(data["verified"])
 
+    def test_target_and_hardening_options(self):
+        code = 'local n = 0\nfor i = 1, 5 do n = n + i end\nprint(n)\n'
+        status, data = playground.obfuscate_request(
+            {"code": code, "level": "nightmare", "target": "luau", "seed": 2,
+             "anti_debug": True, "brand": "Forsakenis4"}
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(data["stats"]["target"], "luau")
+        self.assertEqual(data["stats"]["string_mode"], "vm")
+        self.assertNotIn("Forsakenis4", data["code"])
+
+    def test_unknown_target(self):
+        status, data = playground.obfuscate_request({"code": "print(1)", "target": "lua99"})
+        self.assertEqual(status, 400)
+
+    def test_lowering_error_is_reported_cleanly(self):
+        status, data = playground.obfuscate_request(
+            {"code": "::top:: goto top", "target": "lua51", "level": "light"}
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("goto", data["error"])
+
     def test_index_page_exists(self):
         self.assertTrue(os.path.exists(os.path.join(os.path.dirname(HERE), "playground", "index.html")))
 

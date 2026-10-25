@@ -208,7 +208,7 @@ class Resolver:
             for expr in node.exprs:
                 self.expr(expr)
 
-        elif isinstance(node, (A.Break, A.Goto, A.Label, A.Empty)):
+        elif isinstance(node, (A.Break, A.Goto, A.Label, A.Empty, A.Continue, A.TypeDecl)):
             pass
 
         else:
@@ -262,6 +262,11 @@ class Resolver:
             self.function(node)
         elif isinstance(node, A.Paren):
             self.expr(node.expr)
+        elif isinstance(node, A.IfExpr):
+            for cond, value in node.clauses:
+                self.expr(cond)
+                self.expr(value)
+            self.expr(node.orelse)
         else:
             raise TypeError(f"resolver: unknown expression {type(node).__name__}")
 

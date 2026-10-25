@@ -6,18 +6,25 @@ import random
 from dataclasses import dataclass, field, replace
 
 from . import ast_nodes as A
+from . import stringvm
 from .control import apply_control_flow, junk_declaration
 from .encoder import apply_encoder
+from .flatten import apply_flatten
+from .lower import LoweringError, lower_chunk
 from .parser import parse
 from .renamer import NameGenerator, rename
 from .resolve import DYNAMIC_GLOBALS, resolve
+from .targets import Target, detect_dialect, get_target
 from .unparser import unparse
 
 
 @dataclass
 class Options:
-    #: preset name this option set came from (informational)
+    #: preset this option set came from (informational)
     level: str = "medium"
+
+    #: output runtime: auto | lua51 | lua52 | lua53 | lua54 | luajit | luau
+    target: str = "auto"
 
     # naming
     rename: bool = True
@@ -27,12 +34,21 @@ class Options:
     encrypt_strings: bool = True
     encrypt_numbers: bool = True
     encrypt_keys: bool = True
+    #: "cipher" (fast, one cached decoder) or "vm" (per-string bytecode program)
+    string_mode: str = "cipher"
 
     # control flow
     control_flow: bool = True
     dead_code: int = 1
     junk_functions: int = 0
     wrap_conditions: bool = True
+    #: 0 = off, 1 = normal, 2 = aggressive control-flow flattening
+    flatten: int = 0
+
+    # hardening
+    anti_debug: bool = False
+    #: hidden watermark, recoverable only by decoding
+    brand: str = ""
 
     # structure / output
     wrap: bool = False
@@ -65,6 +81,7 @@ PRESETS: dict[str, Options] = {
         dead_code=2,
         junk_functions=2,
         wrap=True,
+        flatten=1,
     ),
     "insane": Options(
         level="insane",
@@ -72,6 +89,18 @@ PRESETS: dict[str, Options] = {
         dead_code=3,
         junk_functions=4,
         wrap=True,
+        flatten=2,
+        string_mode="vm",
+    ),
+    "nightmare": Options(
+        level="nightmare",
+        rename_style="confusable",
+        dead_code=4,
+        junk_functions=8,
+        wrap=True,
+        flatten=2,
+        string_mode="vm",
+        anti_debug=True,
     ),
 }
 
@@ -95,6 +124,43 @@ class Result:
 
 SHEBANG_PREFIX = "#!"
 
+ANTI_DEBUG_SOURCE = """local $dg=rawget(_G,"debug")
+if type($dg)=="table" and type($dg.gethook)=="function" then
+  local $h=$dg.gethook()
+  if $h~=nil then error("integrity check failed",0) end
+end
+"""
+
+
+def _anti_debug_source(ngen: NameGenerator) -> str:
+    text = ANTI_DEBUG_SOURCE
+    for token in ("dg", "h"):
+        text = text.replace("$" + token, ngen.next())
+    return text
+
+
+def _uses_goto(chunk: A.Chunk) -> bool:
+    from .renamer import walk
+
+    return any(isinstance(node, (A.Goto, A.Label)) for node in walk(chunk))
+
+
+def _uses_bitwise(chunk: A.Chunk) -> bool:
+    from .renamer import walk
+
+    for node in walk(chunk):
+        if isinstance(node, A.BinOp) and node.op in ("&", "|", "~", "<<", ">>"):
+            return True
+        if isinstance(node, A.UnOp) and node.op == "~":
+            return True
+    return False
+
+
+def _uses_floor_div(chunk: A.Chunk) -> bool:
+    from .renamer import walk
+
+    return any(isinstance(node, A.BinOp) and node.op == "//" for node in walk(chunk))
+
 
 def obfuscate_source(source: str, options: Options | None = None, filename: str = "<input>") -> Result:
     opts = options or Options()
@@ -111,10 +177,36 @@ def obfuscate_source(source: str, options: Options | None = None, filename: str 
         else:
             shebang, body_source = body_source[: newline + 1], body_source[newline + 1 :]
 
-    chunk = parse(body_source, filename)
+    # ---- target / dialect -------------------------------------------------
+    target: Target = get_target(opts.target)
+    dialect = "luau" if target.dialect == "luau" else "auto"
+    if opts.target == "auto":
+        detected = detect_dialect(body_source)
+        if detected == "luau":
+            warnings.append("Luau syntax detected; pass --target luau to keep `continue`/types out of the output")
+    chunk = parse(body_source, filename, dialect=dialect)
+
+    # A script that uses newer syntax cannot run on stock Lua 5.1.  If the target
+    # was not chosen explicitly, quietly pick the nearest target that preserves
+    # the original semantics exactly (emulation can change numeric subtypes).
+    if target.name == "lua51":
+        needs = []
+        if _uses_goto(chunk):
+            needs.append(("lua52", "goto/labels"))
+        if _uses_bitwise(chunk) or _uses_floor_div(chunk):
+            needs.append(("lua53", "bitwise operators or //"))
+        if needs:
+            upgraded, why = needs[-1]
+            if opts.target == "auto":
+                target = get_target(upgraded)
+                warnings.append(f"script uses {why}; emitting {upgraded} instead of lua51")
+            else:
+                raise LoweringError(
+                    f"the script uses {why}, which {target.name} does not support; "
+                    f"use --target {upgraded} or newer"
+                )
 
     if not chunk.body.stats:
-        # nothing to hide; an empty chunk (or a lone shebang) stays empty
         return Result(
             code=shebang,
             stats={
@@ -124,27 +216,27 @@ def obfuscate_source(source: str, options: Options | None = None, filename: str 
                 "renamed": 0,
                 "names": {},
                 "level": opts.level,
+                "target": target.name,
             },
             warnings=[],
         )
 
     resolver = resolve(chunk)
-
     if opts.rename:
         dynamic = sorted(resolver.dynamic_features & DYNAMIC_GLOBALS)
         if dynamic:
-            msg = (
-                "script uses dynamic name access ("
-                + ", ".join(dynamic)
-                + "); renaming locals is still safe, but globals are left untouched"
+            warnings.append(
+                "script uses dynamic name access (" + ", ".join(dynamic) + "); "
+                "renaming locals is still safe, but globals are left untouched"
             )
-            warnings.append(msg)
     ngen = NameGenerator(opts.rename_style, reserved=set(resolver.globals_used), seed=rng.randrange(1000))
 
-    mapping: dict[str, str] = {}
-    if opts.rename:
-        mapping = rename(chunk, resolver, style=opts.rename_style, seed=rng.randrange(1000))
+    # ---- control-flow flattening -----------------------------------------
+    flattened = 0
+    if opts.flatten:
+        flattened = apply_flatten(chunk, rng, ngen, resolver, intensity=opts.flatten)
 
+    # ---- opaque predicates / dead code ------------------------------------
     if opts.control_flow:
         junk_var = apply_control_flow(
             chunk,
@@ -156,31 +248,71 @@ def obfuscate_source(source: str, options: Options | None = None, filename: str 
         )
         chunk.body.stats.insert(0, junk_declaration(junk_var, rng))
 
-    prelude = ""
-    if opts.encrypt_strings or opts.encrypt_numbers:
-        prelude, _encoder = apply_encoder(
-            chunk,
-            ngen,
-            rng,
-            encrypt_numbers=opts.encrypt_numbers,
-            encrypt_keys=opts.encrypt_keys and opts.encrypt_strings,
-        )
+    # ---- literals ---------------------------------------------------------
+    prelude_parts: list[str] = []
+    if opts.anti_debug:
+        prelude_parts.append(_anti_debug_source(ngen))
 
+    names_map: dict[str, str] = {}
+    if opts.encrypt_strings or opts.encrypt_numbers:
+        if opts.string_mode == "vm" and opts.encrypt_strings:
+            prelude, encoder = apply_encoder(
+                chunk,
+                ngen,
+                rng,
+                encrypt_numbers=opts.encrypt_numbers,
+                encrypt_keys=opts.encrypt_keys,
+                string_mode="vm",
+            )
+        else:
+            prelude, encoder = apply_encoder(
+                chunk,
+                ngen,
+                rng,
+                encrypt_numbers=opts.encrypt_numbers,
+                encrypt_keys=opts.encrypt_keys and opts.encrypt_strings,
+            )
+        if prelude:
+            prelude_parts.append(prelude)
+
+    # ---- hidden watermark -------------------------------------------------
+    if opts.brand and opts.encrypt_strings:
+        brand_name = ngen.next()
+        payload_name = ngen.next()
+        encoded = stringvm.encode(opts.brand.encode("utf-8"), rng) if opts.string_mode == "vm" else None
+        if encoded is None:
+            from .encoder import encode_payload
+
+            encoded = encode_payload(opts.brand.encode("utf-8"), rng)
+        decoder = encoder.decoder_name if (opts.encrypt_strings or opts.encrypt_numbers) else brand_name
+        prelude_parts.append(f'local {brand_name}={decoder}"{encoded}"\n')
+        prelude_parts.append(f"local {payload_name}={brand_name}\n")
+
+    # ---- lower to the target dialect --------------------------------------
+    helper_prelude, lower_warnings = lower_chunk(chunk, target)
+    if helper_prelude:
+        prelude_parts.append(helper_prelude)
+    warnings.extend(lower_warnings)
+
+    # ---- rename (last, so generated helpers are renamed too) --------------
+    if opts.rename:
+        resolver = resolve(chunk)
+        names_map = rename(chunk, resolver, style=opts.rename_style, seed=rng.randrange(1000))
+
+    # ---- wrap -------------------------------------------------------------
     if opts.wrap:
-        body = chunk.body
-        varargs = A.Vararg()
-        wrapper = A.Function([], True, body)
-        chunk = A.Chunk(A.Block([A.Return([A.Call(wrapper, [varargs])])]))
+        wrapper = A.Function([], True, chunk.body)
+        chunk = A.Chunk(A.Block([A.Return([A.Call(wrapper, [A.Vararg()])])]))
 
     code = unparse(chunk, minify=opts.minify)
-    if prelude:
-        code = prelude + ("\n" if opts.minify else "\n") + code
+    if prelude_parts:
+        code = "".join(prelude_parts) + ("\n" if opts.minify else "\n\n") + code
     if shebang:
         code = shebang + code
 
-    # sanity: the output must still parse
+    # ---- sanity: the output must parse for the target ---------------------
     try:
-        parse(code if not shebang else code[len(shebang):], "<obfuscated>")
+        parse(code[len(shebang) :], "<obfuscated>", dialect=target.dialect)
     except Exception as exc:  # pragma: no cover - a bug in a pass
         raise RuntimeError(f"internal error: generated code does not parse: {exc}") from exc
 
@@ -188,9 +320,12 @@ def obfuscate_source(source: str, options: Options | None = None, filename: str 
         "seed": seed,
         "input_bytes": len(source.encode("utf-8")),
         "output_bytes": len(code.encode("utf-8")),
-        "renamed": len(mapping),
-        "names": mapping,
+        "renamed": len(names_map),
+        "names": names_map,
         "level": opts.level,
+        "target": target.name,
+        "flattened": flattened,
+        "string_mode": opts.string_mode if opts.encrypt_strings else "off",
     }
     if opts.strict and warnings:
         raise RuntimeError("; ".join(warnings))

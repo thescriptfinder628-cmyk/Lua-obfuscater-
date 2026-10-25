@@ -157,7 +157,7 @@ class ControlFlow:
             self.visit_stat(stat)
             new_stats.append(stat)
             # never insert anything after a return/break: it must stay last
-            if isinstance(stat, (A.Return, A.Break)):
+            if isinstance(stat, (A.Return, A.Break, A.Continue)):
                 continue
             if self.dead_code and self.rng.random() < 0.12 * self.dead_code:
                 new_stats.append(self.dead_block())
@@ -204,6 +204,8 @@ class ControlFlow:
         elif isinstance(stat, A.Return):
             for expr in stat.exprs:
                 self.visit_expr(expr)
+        elif isinstance(stat, (A.Break, A.Continue, A.Goto, A.Label, A.Empty, A.TypeDecl)):
+            pass
 
     def visit_expr(self, expr: A.Expr) -> None:
         """Find anonymous functions nested in expressions and obfuscate them."""
@@ -233,6 +235,11 @@ class ControlFlow:
                     self.visit_expr(field.value)
         elif isinstance(expr, A.Paren):
             self.visit_expr(expr.expr)
+        elif isinstance(expr, A.IfExpr):
+            for cond, value in expr.clauses:
+                self.visit_expr(cond)
+                self.visit_expr(value)
+            self.visit_expr(expr.orelse)
 
 
 def apply_control_flow(chunk: A.Chunk, rng: random.Random, ngen: NameGenerator, **opts) -> str | None:

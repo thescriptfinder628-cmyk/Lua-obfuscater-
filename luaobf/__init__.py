@@ -9,7 +9,7 @@ Usage::
 
 from .obfuscator import Options, Result, obfuscate_source, preset
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 
 __all__ = ["obfuscate", "obfuscate_source", "Options", "Result", "preset", "__version__"]
 

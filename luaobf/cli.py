@@ -7,9 +7,11 @@ import json
 import sys
 
 from .lexer import LuaSyntaxError
+from .lower import LoweringError
 from .obfuscator import PRESETS, Options, obfuscate_source, preset
+from .targets import TARGETS
 
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 
 EPILOG = """\
 examples:
@@ -20,10 +22,16 @@ examples:
   lua-obfuscator script.lua --verify        # run both versions, compare output
 
 levels:
-  light    rename locals + minify (smallest output, fastest)
-  medium   + encrypted strings/numbers + opaque predicates  (default)
-  heavy    + method hiding + chunk wrapper + dead code
-  insane   maximum noise: more dead code, junk functions, hash names
+  light      rename locals + minify (smallest output, fastest)
+  medium     + encrypted strings/numbers + opaque predicates  (default)
+  heavy      + control-flow flattening + chunk wrapper + decoys
+  insane     + per-string bytecode VM instead of a single cipher
+  nightmare  everything, including anti-debug guards and maximum noise
+
+targets (--target):
+  auto   (default) keep the script's own requirements, emit the widest one
+  lua51  PUC Lua 5.1        lua52  PUC Lua 5.2       lua53  PUC Lua 5.3
+  lua54  PUC Lua 5.4        luajit LuaJIT 2.x        luau   Roblox Luau
 """
 
 
@@ -39,6 +47,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-l", "--level", choices=sorted(PRESETS), default="medium", help="preset strength")
     parser.add_argument("--seed", type=int, help="random seed for reproducible output")
     parser.add_argument("--names", choices=("short", "wide", "hash", "confusable"), help="identifier style")
+    parser.add_argument(
+        "-t",
+        "--target",
+        choices=sorted(list(TARGETS) + ["auto"]),
+        default=None,
+        help="output dialect/runtime (default: auto)",
+    )
+    parser.add_argument(
+        "--strings",
+        choices=("cipher", "vm"),
+        help="string protection: 'cipher' (fast) or 'vm' (per-string bytecode)",
+    )
+    parser.add_argument("--flatten", type=int, metavar="0-3", help="control-flow flattening intensity")
+    parser.add_argument("--anti-debug", action="store_true", help="add runtime anti-debug guards")
+    parser.add_argument("--brand", metavar="NAME", help="embed a hidden watermark (recoverable only by decoding)")
 
     parser.add_argument("--no-rename", action="store_true", help="keep local variable names")
     parser.add_argument("--no-strings", action="store_true", help="do not encrypt string literals")
@@ -70,6 +93,16 @@ def options_from_args(args: argparse.Namespace) -> Options:
     opts = preset(args.level)
     if args.names:
         opts.rename_style = args.names
+    if args.target:
+        opts.target = args.target
+    if args.strings:
+        opts.string_mode = args.strings
+    if args.flatten is not None:
+        opts.flatten = max(0, min(3, args.flatten))
+    if args.anti_debug:
+        opts.anti_debug = True
+    if args.brand:
+        opts.brand = args.brand
     if args.no_rename:
         opts.rename = False
     if args.no_strings:
@@ -127,6 +160,9 @@ def main(argv: list[str] | None = None) -> int:
     except LuaSyntaxError as exc:
         print(f"lua-obfuscator: {exc}", file=sys.stderr)
         return 2
+    except LoweringError as exc:
+        print(f"lua-obfuscator: cannot target {opts.target}: {exc}", file=sys.stderr)
+        return 5
     except RuntimeError as exc:
         print(f"lua-obfuscator: {exc}", file=sys.stderr)
         return 3

@@ -3,154 +3,378 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lua Obfuscator — playground</title>
+<title>Forsakenis4 — Lua Obfuscator</title>
+<meta name="description" content="Forsakenis4 Obfuscator: maximum-strength Lua protection for every dialect — Lua 5.1 to 5.4, LuaJIT and Roblox Luau.">
 <style>
   :root {
-    --bg: #0d1117;
-    --panel: #161b22;
-    --border: #30363d;
-    --text: #e6edf3;
-    --muted: #8b949e;
-    --accent: #3fb950;
-    --accent-dim: #238636;
-    --danger: #f85149;
-    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --navy-900: #050d24;
+    --navy-800: #071431;
+    --navy-700: #0a1c44;
+    --navy-600: #0e2657;
+    --line: #16346b;
+    --blue-400: #4d9fff;
+    --blue-500: #2f7fff;
+    --blue-600: #1f5fd8;
+    --cyan: #38e1ff;
+    --text: #e8f0ff;
+    --muted: #8ba4d0;
+    --ok: #46e0a0;
+    --warn: #ffcc66;
+    --bad: #ff7a8a;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
   body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-    display: flex; flex-direction: column; min-height: 100vh;
+    background:
+      radial-gradient(1100px 600px at 15% -8%, #123d8f 0%, transparent 60%),
+      radial-gradient(900px 500px at 95% 0%, #0b2f74 0%, transparent 55%),
+      linear-gradient(180deg, var(--navy-900) 0%, #04102a 100%);
+    background-attachment: fixed;
+    color: var(--text);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
   }
+  a { color: var(--blue-400); text-decoration: none; }
+  a:hover { color: var(--cyan); }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 0 22px; }
+
+  /* ---------- header ---------- */
   header {
-    padding: 14px 20px; border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    position: sticky; top: 0; z-index: 20;
+    backdrop-filter: blur(14px);
+    background: linear-gradient(180deg, rgba(6,17,42,.94), rgba(6,17,42,.72));
+    border-bottom: 1px solid var(--line);
   }
-  h1 { font-size: 17px; margin: 0; font-weight: 600; letter-spacing: -0.2px; }
-  h1 span { color: var(--accent); }
-  .tag { color: var(--muted); font-size: 13px; }
-  .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-left: auto; }
-  label { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
-  select, input[type=number] {
-    background: var(--panel); color: var(--text); border: 1px solid var(--border);
-    border-radius: 6px; padding: 5px 8px; font: inherit; font-size: 13px;
+  .bar { display: flex; align-items: center; gap: 16px; height: 66px; }
+  .brand { display: flex; align-items: center; gap: 11px; }
+  .mark {
+    width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+    background: linear-gradient(145deg, var(--blue-500), #1642a8);
+    box-shadow: 0 0 0 1px #2a63d8 inset, 0 6px 18px -6px #2f7fff;
   }
-  input[type=number] { width: 90px; }
+  .wordmark { font-weight: 800; letter-spacing: -.4px; font-size: 18px; }
+  .wordmark em { font-style: normal; color: var(--blue-400); }
+  .tagline { color: var(--muted); font-size: 12.5px; margin-left: 2px; }
+  nav { margin-left: auto; display: flex; gap: 20px; font-size: 13.5px; color: var(--muted); }
+  nav a { color: var(--muted); }
+  nav a:hover { color: var(--text); }
+  .badge {
+    font-size: 11px; letter-spacing: .7px; text-transform: uppercase; color: var(--cyan);
+    border: 1px solid #1d4f9e; background: #0b2350; padding: 3px 9px; border-radius: 999px;
+  }
+
+  /* ---------- hero ---------- */
+  .hero { padding: 46px 0 20px; }
+  .hero h1 { font-size: clamp(30px, 5vw, 46px); line-height: 1.1; margin: 0 0 12px; letter-spacing: -1.4px; }
+  .hero h1 span {
+    background: linear-gradient(92deg, #7fc0ff 0%, var(--blue-400) 40%, var(--cyan) 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero p { color: var(--muted); max-width: 720px; margin: 0; font-size: 16px; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
+  .chip {
+    font-size: 12px; color: #b9d2f7; border: 1px solid var(--line);
+    background: rgba(14,38,87,.55); padding: 4px 11px; border-radius: 999px;
+  }
+
+  /* ---------- app ---------- */
+  .app {
+    margin: 26px 0 10px; border: 1px solid var(--line); border-radius: 16px; overflow: hidden;
+    background: rgba(7,20,49,.72);
+    box-shadow: 0 30px 80px -40px #000, 0 0 0 1px rgba(77,159,255,.06) inset;
+  }
+  .toolbar {
+    display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+    padding: 13px 16px; border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(14,38,87,.75), rgba(9,27,62,.55));
+  }
+  .field { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); }
+  select, input[type=text], input[type=number] {
+    background: #071a3d; color: var(--text); border: 1px solid #1c4a92; border-radius: 8px;
+    padding: 6px 9px; font: inherit; font-size: 13px; outline: none;
+  }
+  select:focus, input:focus { border-color: var(--blue-500); box-shadow: 0 0 0 3px rgba(47,127,255,.18); }
+  input[type=number] { width: 92px; }
+  input[type=text] { width: 150px; }
+  .switch { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); cursor: pointer; user-select: none; }
+  .switch input { accent-color: var(--blue-500); }
+  .spacer { flex: 1 1 auto; }
   button {
-    background: var(--accent-dim); color: #fff; border: 1px solid rgba(240,246,252,.1);
-    border-radius: 6px; padding: 7px 14px; font: inherit; font-size: 13px; font-weight: 600;
-    cursor: pointer;
+    font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; border-radius: 9px;
+    padding: 8px 16px; border: 1px solid transparent; transition: transform .06s ease, background .15s ease;
   }
-  button:hover { background: #2ea043; }
-  button.secondary { background: #21262d; color: var(--text); }
-  button.secondary:hover { background: #30363d; }
-  button:disabled { opacity: .6; cursor: progress; }
-  main { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); flex: 1; min-height: 0; }
-  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
-  .pane { display: flex; flex-direction: column; background: var(--bg); min-height: 0; }
+  button:active { transform: translateY(1px); }
+  .primary {
+    color: #fff; border-color: #3f83ff;
+    background: linear-gradient(180deg, var(--blue-500), var(--blue-600));
+    box-shadow: 0 8px 22px -10px #2f7fff, 0 0 0 1px rgba(255,255,255,.06) inset;
+  }
+  .primary:hover { background: linear-gradient(180deg, #4a90ff, #2a6ae8); }
+  .primary:disabled { opacity: .65; cursor: progress; }
+  .ghost { background: #0b2350; color: #cfe2ff; border-color: #1c4a92; }
+  .ghost:hover { background: #123066; }
+
+  .panes { display: grid; grid-template-columns: 1fr 1fr; min-height: 440px; }
+  @media (max-width: 880px) { .panes { grid-template-columns: 1fr; } }
+  .pane { display: flex; flex-direction: column; min-width: 0; }
+  .pane + .pane { border-left: 1px solid var(--line); }
+  @media (max-width: 880px) { .pane + .pane { border-left: 0; border-top: 1px solid var(--line); } }
   .pane-head {
-    display: flex; align-items: center; gap: 10px; padding: 8px 14px;
-    font-size: 12px; letter-spacing: .6px; text-transform: uppercase; color: var(--muted);
-    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px; padding: 9px 14px;
+    font-size: 11px; letter-spacing: 1.1px; text-transform: uppercase; color: #7fa2d8;
+    border-bottom: 1px solid var(--line); background: rgba(9,27,62,.4);
   }
-  .pane-head .right { margin-left: auto; display: flex; gap: 8px; align-items: center; text-transform: none; letter-spacing: 0; }
+  .pane-head .right { margin-left: auto; display: flex; gap: 8px; text-transform: none; letter-spacing: 0; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--blue-500); box-shadow: 0 0 10px var(--blue-500); }
+  .dot.out { background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
   textarea {
-    flex: 1; resize: none; border: 0; outline: 0; padding: 14px;
-    background: var(--bg); color: var(--text); font-family: var(--mono); font-size: 13px;
-    line-height: 1.55; min-height: 46vh; tab-size: 2;
+    flex: 1; width: 100%; resize: vertical; border: 0; outline: 0; padding: 14px 16px;
+    background: rgba(4,13,32,.6); color: #dbe8ff; font-family: var(--mono); font-size: 12.8px;
+    line-height: 1.62; min-height: 380px; tab-size: 2;
   }
-  textarea::selection { background: #1f6feb55; }
-  #out { color: #a5d6ff; white-space: pre; overflow: auto; }
-  .status { padding: 8px 14px; font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--border); font-family: var(--mono); }
-  .status.err { color: var(--danger); white-space: pre-wrap; }
-  .stats { display: flex; gap: 14px; flex-wrap: wrap; }
-  .stats b { color: var(--text); font-weight: 600; }
-  .pill { border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px; font-size: 11.5px; }
-  .warn { color: #d29922; }
+  #out { color: #9fd7ff; }
+  .status {
+    display: flex; flex-wrap: wrap; gap: 9px; align-items: center;
+    padding: 10px 16px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--muted);
+    font-family: var(--mono); background: rgba(7,20,49,.6); min-height: 44px;
+  }
+  .status .k { color: #cfe2ff; }
+  .pill { border: 1px solid var(--line); background: #0a2148; border-radius: 999px; padding: 2px 10px; }
+  .pill.ok { color: var(--ok); border-color: #1c5c48; background: #08281f; }
+  .err { color: var(--bad); white-space: pre-wrap; }
+  .warnc { color: var(--warn); }
+
+  /* ---------- sections ---------- */
+  section.block { padding: 52px 0 10px; }
+  section.block h2 { font-size: 24px; letter-spacing: -.6px; margin: 0 0 6px; }
+  section.block .sub { color: var(--muted); margin: 0 0 22px; font-size: 14.5px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; }
+  .card {
+    border: 1px solid var(--line); border-radius: 13px; padding: 16px 17px;
+    background: linear-gradient(180deg, rgba(14,38,87,.55), rgba(7,20,49,.5));
+  }
+  .card h3 { margin: 0 0 7px; font-size: 14.5px; letter-spacing: -.1px; }
+  .card p { margin: 0; color: var(--muted); font-size: 13.2px; }
+  .card .ico { color: var(--blue-400); font-family: var(--mono); font-size: 12px; letter-spacing: .5px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.4px; overflow: hidden; border-radius: 12px; }
+  thead th {
+    text-align: left; font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+    color: #7fa2d8; padding: 10px 14px; border-bottom: 1px solid var(--line); background: rgba(9,27,62,.5);
+  }
+  tbody td { padding: 11px 14px; border-bottom: 1px solid rgba(22,52,107,.6); color: #cddffb; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody td:first-child { color: var(--text); font-weight: 650; }
+  .note {
+    border-left: 3px solid var(--blue-500); background: rgba(16,44,98,.45);
+    padding: 13px 16px; border-radius: 0 10px 10px 0; color: #c3d7f6; font-size: 13.4px;
+  }
+  .note strong { color: #fff; }
+  footer {
+    margin-top: 60px; border-top: 1px solid var(--line); padding: 26px 0 40px;
+    color: var(--muted); font-size: 13px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center;
+  }
+  footer .spacer { flex: 1; }
+  code { font-family: var(--mono); font-size: 12.6px; background: #0a2148; border: 1px solid var(--line); padding: 1px 6px; border-radius: 6px; color: #bcd9ff; }
 </style>
 </head>
 <body>
+
 <header>
-  <h1>Lua<span>Obfuscator</span></h1>
-  <span class="tag">paste code, get unreadable code that still runs</span>
-  <div class="controls">
-    <label>level
-      <select id="level">
-        <option value="light">light</option>
-        <option value="medium" selected>medium</option>
-        <option value="heavy">heavy</option>
-        <option value="insane">insane</option>
-      </select>
-    </label>
-    <label>seed <input type="number" id="seed" value="7" min="0" step="1"></label>
-    <label><input type="checkbox" id="verify"> verify by running it</label>
-    <button id="run">Obfuscate</button>
-  </div>
-</header>
-<main>
-  <section class="pane">
-    <div class="pane-head">Input
-      <div class="right"><button class="secondary" id="sample">Load sample</button></div>
-    </div>
-    <textarea id="in" spellcheck="false" placeholder="-- paste Lua here"></textarea>
-  </section>
-  <section class="pane">
-    <div class="pane-head">Output
-      <div class="right">
-        <button class="secondary" id="copy">Copy</button>
-        <button class="secondary" id="download">Download</button>
+  <div class="wrap bar">
+    <div class="brand">
+      <div class="mark" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2l7 3v6c0 4.3-2.9 8.2-7 10-4.1-1.8-7-5.7-7-10V5l7-3z" stroke="#eaf3ff" stroke-width="1.7" fill="rgba(255,255,255,.08)"/>
+          <circle cx="12" cy="10.6" r="1.9" fill="#eaf3ff"/>
+          <path d="M12 12.4v3.2" stroke="#eaf3ff" stroke-width="1.7" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div>
+        <div class="wordmark">Forsaken<em>is4</em></div>
+        <div class="tagline">Lua protection suite</div>
       </div>
     </div>
-    <textarea id="out" readonly spellcheck="false" placeholder="-- result appears here"></textarea>
+    <span class="badge">official</span>
+    <nav>
+      <a href="#app">Obfuscator</a>
+      <a href="#levels">Levels</a>
+      <a href="#dialects">Dialects</a>
+      <a href="#notes">Security</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="hero">
+    <h1>Make your Lua <span>unreadable</span>.</h1>
+    <p>Maximum-strength obfuscation for every Lua dialect. Your script keeps running exactly as written —
+       what changes is that nobody can read it, follow it, or grep it for your secrets.</p>
+    <div class="chips">
+      <span class="chip">Lua 5.1 – 5.4</span>
+      <span class="chip">LuaJIT</span>
+      <span class="chip">Roblox Luau</span>
+      <span class="chip">control-flow flattening</span>
+      <span class="chip">per-string bytecode VM</span>
+      <span class="chip">zero dependencies</span>
+    </div>
+  </div>
+
+  <div class="app" id="app">
+    <div class="toolbar">
+      <label class="field">level
+        <select id="level">
+          <option value="light">light — minify + rename</option>
+          <option value="medium" selected>medium — encrypted strings</option>
+          <option value="heavy">heavy — + flattening</option>
+          <option value="insane">insane — + string VM</option>
+          <option value="nightmare">nightmare — maximum</option>
+        </select>
+      </label>
+      <label class="field">target
+        <select id="target">
+          <option value="auto" selected>auto</option>
+          <option value="lua51">Lua 5.1</option>
+          <option value="lua52">Lua 5.2</option>
+          <option value="lua53">Lua 5.3</option>
+          <option value="lua54">Lua 5.4</option>
+          <option value="luajit">LuaJIT</option>
+          <option value="luau">Roblox Luau</option>
+        </select>
+      </label>
+      <label class="field">seed <input type="number" id="seed" value="7" min="0" step="1"></label>
+      <label class="switch"><input type="checkbox" id="antidebug"> anti-debug</label>
+      <label class="switch"><input type="checkbox" id="verify" checked> verify by running</label>
+      <span class="spacer"></span>
+      <button class="ghost" id="sample">Sample</button>
+      <button class="primary" id="run">Obfuscate</button>
+    </div>
+
+    <div class="panes">
+      <div class="pane">
+        <div class="pane-head"><span class="dot"></span> input.lua</div>
+        <textarea id="in" spellcheck="false" placeholder="-- paste Lua or Luau here"></textarea>
+      </div>
+      <div class="pane">
+        <div class="pane-head"><span class="dot out"></span> protected.lua
+          <div class="right">
+            <button class="ghost" id="copy">Copy</button>
+            <button class="ghost" id="download">Download</button>
+          </div>
+        </div>
+        <textarea id="out" readonly spellcheck="false" placeholder="-- output appears here"></textarea>
+      </div>
+    </div>
+
+    <div class="status" id="status"><span>Ready. Ctrl/⌘ + Enter to obfuscate.</span></div>
+  </div>
+
+  <section class="block" id="levels">
+    <h2>Five levels</h2>
+    <p class="sub">Each level is a superset of the one above it.</p>
+    <table>
+      <thead><tr><th>Level</th><th>What it adds</th><th>Typical size</th></tr></thead>
+      <tbody>
+        <tr><td>light</td><td>renamed locals, comments and whitespace removed</td><td>smaller than input</td></tr>
+        <tr><td>medium</td><td>encrypted strings and keys, encoded numbers, opaque predicates</td><td>~3–5×</td></tr>
+        <tr><td>heavy</td><td>control-flow flattening, chunk wrapper, decoy functions</td><td>~5–8×</td></tr>
+        <tr><td>insane</td><td>per-string bytecode VM instead of one fixed cipher</td><td>~7–10×</td></tr>
+        <tr><td>nightmare</td><td>everything, plus anti-debug integrity guards</td><td>~9–14×</td></tr>
+      </tbody>
+    </table>
   </section>
+
+  <section class="block" id="dialects">
+    <h2>Every dialect</h2>
+    <p class="sub">Write in one Lua, ship in another — unsupported syntax is lowered automatically.</p>
+    <div class="grid">
+      <div class="card"><div class="ico">lua51</div><h3>Lua 5.1</h3><p>The classic. No goto, no bitwise operators — both are lowered or rejected with a clear message instead of emitting broken code.</p></div>
+      <div class="card"><div class="ico">lua52 / lua53</div><h3>Lua 5.2 – 5.3</h3><p><code>continue</code> becomes a real goto label; bitwise operators are emulated arithmetically where the target lacks them.</p></div>
+      <div class="card"><div class="ico">lua54</div><h3>Lua 5.4</h3><p>Full feature set, including <code>&lt;const&gt;</code> and integer semantics kept bit-exact.</p></div>
+      <div class="card"><div class="ico">luajit</div><h3>LuaJIT 2.x</h3><p>5.1 dialect with goto support — the usual choice for performance-critical game scripting.</p></div>
+      <div class="card"><div class="ico">luau</div><h3>Roblox Luau</h3><p>Types, <code>continue</code>, if-expressions and compound assignment are parsed, then either kept (Luau target) or lowered away.</p></div>
+      <div class="card"><div class="ico">auto</div><h3>Auto</h3><p>Reads your script and picks the narrowest target that preserves its exact behaviour.</p></div>
+    </div>
+  </section>
+
+  <section class="block" id="notes">
+    <h2>What this does — and what it cannot do</h2>
+    <p class="sub">Any protection you can hand to a runtime can eventually be undone by that same runtime.</p>
+    <div class="grid">
+      <div class="card"><h3>It removes the easy wins</h3><p>No names, no strings, no readable structure, no comments. Grepping for a key, an endpoint or a variable is impossible; following the logic requires following randomly numbered states.</p></div>
+      <div class="card"><h3>Strings need a runtime decoder</h3><p>Every encrypted string is decrypted in memory before use, so a memory dump or a traced <code>string.char</code> can recover them. The per-string VM makes that a per-string job, not a single script.</p></div>
+      <div class="card"><h3>Bytecode is a different problem</h3><p>If you also ship <code>luac</code> output, protect that separately — obfuscating the source does not obfuscate its compiled form.</p></div>
+      <div class="card"><h3>It is not encryption</h3><p>Nobody needs your key to run the script. Treat this as a very high wall, not a vault: it buys time and deters casual copying, it does not make reverse-engineering theoretically impossible.</p></div>
+    </div>
+    <p class="note" style="margin-top:16px"><strong>Verify before you ship.</strong> The <em>verify by running</em> switch executes your script and the obfuscated build and compares their output. If they differ, you get nothing back — a broken build never leaves the page.</p>
+  </section>
+
+  <footer>
+    <div class="brand" style="gap:9px">
+      <div class="mark" style="width:26px;height:26px;border-radius:8px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 2l7 3v6c0 4.3-2.9 8.2-7 10-4.1-1.8-7-5.7-7-10V5l7-3z" stroke="#eaf3ff" stroke-width="1.7"/></svg>
+      </div>
+      <span>Forsakenis4</span>
+    </div>
+    <span class="spacer"></span>
+    <span>Obfuscator v2.0 · MIT</span>
+    <span>·</span>
+    <span>Built for Lua, Luau and LuaJIT</span>
+  </footer>
 </main>
-<div class="status" id="status">Ready.</div>
 
 <script>
-const SAMPLE = `-- a tiny inventory system
-local Inventory = {}
-Inventory.__index = Inventory
+const SAMPLE = `-- Roblox-style module: ship it protected
+local Cache = {}
+Cache.__index = Cache
 
-function Inventory.new(capacity)
-  return setmetatable({ items = {}, capacity = capacity }, Inventory)
+function Cache.new(limit: number)
+  return setmetatable({ limit = limit, items = {}, n = 0 }, Cache)
 end
 
-function Inventory:add(name, count)
-  if #self.items >= self.capacity then
-    return false, "inventory full"
-  end
-  table.insert(self.items, { name = name, count = count or 1 })
-  return true, "added " .. name
+function Cache:put(key, value)
+  if self.n >= self.limit then return false, "cache full" end
+  if self.items[key] == nil then self.n += 1 end
+  self.items[key] = value
+  return true
 end
 
-function Inventory:total()
-  local sum = 0
-  for _, item in ipairs(self.items) do
-    sum = sum + item.count
-  end
-  return sum
+function Cache:get(key)
+  return self.items[key]
 end
 
-local bag = Inventory.new(3)
-print(bag:add("sword", 2))
-print(bag:add("potion", 5))
-print("total:", bag:total())
+local cache = Cache.new(3)
+cache:put("token", "sk_live_9f2a7c")
+cache:put("user", "Forsakenis4")
+print(cache:get("token"), cache:get("user"))
+
+local total = 0
+for i = 1, 100 do
+  if i % 7 == 0 then continue end
+  total += i
+end
+print("sum", total)
 `;
 
 const $ = (id) => document.getElementById(id);
 const statusEl = $('status');
 
-function setStatus(html, isError) {
-  statusEl.className = 'status' + (isError ? ' err' : '');
+function setStatus(html, kind) {
+  statusEl.className = 'status';
   statusEl.innerHTML = html;
+}
+
+function chip(text, cls) {
+  return `<span class="pill ${cls || ''}">${text}</span>`;
 }
 
 async function run() {
   const code = $('in').value;
-  if (!code.trim()) { setStatus('Nothing to obfuscate.', true); return; }
+  if (!code.trim()) { setStatus('<span class="err">Nothing to obfuscate.</span>'); return; }
   const button = $('run');
   button.disabled = true;
-  setStatus('Working…');
+  setStatus('<span>Working…</span>');
   try {
     const response = await fetch('api/obfuscate', {
       method: 'POST',
@@ -158,30 +382,36 @@ async function run() {
       body: JSON.stringify({
         code,
         level: $('level').value,
+        target: $('target').value,
         seed: Number($('seed').value),
+        anti_debug: $('antidebug').checked,
+        brand: 'Forsakenis4',
         verify: $('verify').checked,
       }),
     });
     const data = await response.json();
     if (!response.ok || data.error) {
-      setStatus(data.error || ('HTTP ' + response.status), true);
+      setStatus('<span class="err">' + String(data.error || ('HTTP ' + response.status)).replace(/</g, '&lt;') + '</span>');
       return;
     }
     $('out').value = data.code;
     const s = data.stats;
     const ratio = s.input_bytes ? (s.output_bytes / s.input_bytes) : 0;
     const parts = [
-      `<span class="pill">${s.input_bytes}B → <b>${s.output_bytes}B</b> (${ratio.toFixed(2)}×)</span>`,
-      `<span class="pill">seed <b>${s.seed}</b></span>`,
-      `<span class="pill">${s.renamed} renamed</span>`,
+      chip(`${s.input_bytes}B → <span class="k">${s.output_bytes}B</span> (${ratio.toFixed(2)}×)`),
+      chip(`level <span class="k">${s.level}</span>`),
+      chip(`target <span class="k">${s.target}</span>`),
+      chip(`${s.renamed} renamed`),
     ];
-    if (data.verified) parts.push('<span class="pill" style="color:var(--accent)">verified ✓</span>');
+    if (s.flattened) parts.push(chip(`${s.flattened} bodies flattened`));
+    if (s.string_mode && s.string_mode !== 'off') parts.push(chip(`strings: <span class="k">${s.string_mode}</span>`));
+    if (data.verified) parts.push(chip('verified ✓', 'ok'));
     if (data.warnings && data.warnings.length) {
-      parts.push('<span class="warn">' + data.warnings.join('; ') + '</span>');
+      parts.push(`<span class="warnc">${data.warnings.join('; ').replace(/</g, '&lt;')}</span>`);
     }
-    setStatus('<span class="stats">' + parts.join('') + '</span>');
+    setStatus(parts.join(''));
   } catch (err) {
-    setStatus('Request failed: ' + err, true);
+    setStatus('<span class="err">Request failed: ' + String(err).replace(/</g, '&lt;') + '</span>');
   } finally {
     button.disabled = false;
   }
@@ -193,15 +423,15 @@ $('copy').addEventListener('click', async () => {
   if (!$('out').value) return;
   try {
     await navigator.clipboard.writeText($('out').value);
-    setStatus('Copied to clipboard.');
-  } catch { setStatus('Copy failed — select the text and press Ctrl/Cmd+C.', true); }
+    setStatus('<span class="k">Copied to clipboard.</span>');
+  } catch { setStatus('<span class="err">Copy failed — select the text and press Ctrl/⌘ + C.</span>'); }
 });
 $('download').addEventListener('click', () => {
   if (!$('out').value) return;
   const blob = new Blob([$('out').value], { type: 'text/plain' });
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
-  link.download = 'obfuscated.lua';
+  link.download = 'protected.lua';
   link.click();
   URL.revokeObjectURL(link.href);
 });

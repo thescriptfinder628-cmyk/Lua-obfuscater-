@@ -53,6 +53,11 @@ OPERATORS = (
     ".",
 )
 
+#: Operators that only exist in Luau: compound assignment and the function-type
+#: arrow.  They are only lexed when the dialect is ``luau``, so that strict Lua
+#: keeps rejecting ``x += 1`` and ``(a) -> b``.
+LUAU_OPERATORS = ("//=", "..=", "+=", "-=", "*=", "/=", "%=", "^=", "->", "?")
+
 # Token kinds
 NAME = "name"
 KEYWORD = "keyword"
@@ -115,7 +120,7 @@ def _is_hex(c: str) -> bool:
 
 
 class Lexer:
-    def __init__(self, source: str, filename: str | None = None) -> None:
+    def __init__(self, source: str, filename: str | None = None, dialect: str = "lua") -> None:
         # Normalise line endings the way the reference implementation does.
         self.src = source.replace("\r\n", "\n").replace("\r", "\n")
         self.n = len(self.src)
@@ -123,6 +128,8 @@ class Lexer:
         self.line = 1
         self.col = 1
         self.filename = filename
+        self.dialect = dialect
+        self.operators = (LUAU_OPERATORS + OPERATORS) if dialect == "luau" else OPERATORS
         self.tokens: list[Token] = []
         #: comments encountered, used only by the "keep comments" debug mode
         self.comments: list[tuple[int, str]] = []
@@ -232,7 +239,7 @@ class Lexer:
                 content = self._read_long_bracket(level)
                 return Token(STRING, content.encode("utf-8"), None, line, col)
 
-        for op in OPERATORS:
+        for op in self.operators:
             if self.src.startswith(op, self.i):
                 self.advance(len(op))
                 return Token(OP, op, op, line, col)
@@ -375,9 +382,9 @@ def _parse_number(raw: str, is_hex: bool):
     return value, True
 
 
-def tokenize(source: str, filename: str | None = None) -> list[Token]:
+def tokenize(source: str, filename: str | None = None, dialect: str = "lua") -> list[Token]:
     """Convenience wrapper: ``tokenize(src) -> [Token, ...]``."""
-    return Lexer(source, filename).tokenize()
+    return Lexer(source, filename, dialect).tokenize()
 
 
 def strip_comments(source: str, filename: str | None = None) -> str:
