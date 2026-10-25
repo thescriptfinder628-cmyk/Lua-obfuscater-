@@ -49,6 +49,18 @@ No identifier survives, no string is readable, and the program still prints
 
 ---
 
+## Try it in the browser
+
+```bash
+python tools/playground.py        # -> http://localhost:8000
+```
+
+A zero-dependency playground: paste Lua on the left, pick a level, get obfuscated code on the
+right, with a **verify** checkbox that runs both versions server-side before showing the result.
+Useful for demoing or for quick one-off jobs.
+
+---
+
 ## Install
 
 ```bash
@@ -264,7 +276,8 @@ luaobf/
   verify.py      differential execution check
   cli.py         command line interface
 tests/           unit tests + a Lua corpus run through real Lua
-tools/           optional real-world stress test against GitHub libraries
+playground/      browser playground (single page, no build step)
+tools/           web playground server + optional real-world stress test
 ```
 
 ## Testing
@@ -278,6 +291,8 @@ The suite (88 tests) covers the lexer, parser, unparser, scope resolution, name 
 the encryption round-trip, the CLI, and — most importantly — **differential tests**: every
 script in `tests/scripts/` is obfuscated at all four levels with several seeds, executed in a
 real Lua interpreter, and its output compared to the original.
+
+Playground API tests run with the rest of the suite (the server itself is not started).
 
 Optional real-world check (downloads MIT-licensed Lua libraries and verifies them):
 
