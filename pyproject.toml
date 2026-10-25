@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lua-obfuscator"
+version = "2.0.0"
+description = "Forsakenis4: maximum-strength Lua/Luau obfuscator with multi-dialect output"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+keywords = ["lua", "luau", "luajit", "obfuscator", "obfuscation", "roblox", "control-flow-flattening"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Lua",
+    "Topic :: Software Development :: Obfuscation",
+    "License :: OSI Approved :: MIT License",
+]
+dependencies = []
+
+[project.optional-dependencies]
+test = ["lupa>=2.0"]
+
+[project.scripts]
+lua-obfuscator = "luaobf.cli:main"
+forsakenis4 = "luaobf.cli:main"
+
+[tool.setuptools]
+packages = ["luaobf"]
