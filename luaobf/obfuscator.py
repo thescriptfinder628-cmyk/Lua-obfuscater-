@@ -10,6 +10,7 @@ from . import stringvm
 from .control import apply_control_flow, junk_declaration
 from .encoder import apply_encoder
 from .flatten import apply_flatten
+from .loader import build_loader
 from .lower import LoweringError, lower_chunk
 from .parser import parse
 from .renamer import NameGenerator, rename
@@ -47,6 +48,10 @@ class Options:
 
     # hardening
     anti_debug: bool = False
+    #: hide the entire program behind an encrypted self-loading bootstrap
+    loader: bool = False
+    #: name shown in error messages from the loader
+    chunk_name: str = "protected"
     #: hidden watermark, recoverable only by decoding
     brand: str = ""
 
@@ -101,6 +106,7 @@ PRESETS: dict[str, Options] = {
         flatten=2,
         string_mode="vm",
         anti_debug=True,
+        loader=True,
     ),
 }
 
@@ -310,6 +316,19 @@ def obfuscate_source(source: str, options: Options | None = None, filename: str 
     if shebang:
         code = shebang + code
 
+    if opts.loader:
+        # Hide the whole program behind an encrypted bootstrap: after this the
+        # file contains no Lua logic at all, only a decoder and a blob.
+        code = build_loader(
+            code,
+            ngen,
+            rng,
+            # a generic prefix keeps the --brand watermark out of the file
+            label="protected chunk",
+            anti_debug=opts.anti_debug,
+            chunk_name=opts.chunk_name,
+        )
+
     # ---- sanity: the output must parse for the target ---------------------
     try:
         parse(code[len(shebang) :], "<obfuscated>", dialect=target.dialect)
@@ -326,6 +345,7 @@ def obfuscate_source(source: str, options: Options | None = None, filename: str 
         "target": target.name,
         "flattened": flattened,
         "string_mode": opts.string_mode if opts.encrypt_strings else "off",
+        "loader": bool(opts.loader),
     }
     if opts.strict and warnings:
         raise RuntimeError("; ".join(warnings))

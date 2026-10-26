@@ -153,6 +153,27 @@ STRATEGIES = {
 }
 
 
+def static_surface(source: str) -> dict:
+    """How much Lua logic can a reader see without executing anything?"""
+    try:
+        chunk = parse(source)
+    except Exception as exc:  # pragma: no cover
+        return {"error": str(exc)}
+    counts = {"statements": 0, "functions": 0, "ifs": 0, "calls": 0, "strings": 0}
+    for node in walk(chunk):
+        if isinstance(node, (A.Stat,)):
+            counts["statements"] += 1
+        if isinstance(node, (A.Function, A.LocalFunction, A.FuncStat)):
+            counts["functions"] += 1
+        if isinstance(node, A.If):
+            counts["ifs"] += 1
+        if isinstance(node, (A.Call, A.MethodCall)):
+            counts["calls"] += 1
+        if isinstance(node, A.String):
+            counts["strings"] += 1
+    return counts
+
+
 def attack(build_source: str, mode: str, limit: int = 400000):
     from lupa import LuaRuntime
 
@@ -185,6 +206,13 @@ def main(argv: list[str] | None = None) -> int:
             targets = lua_string_literals(handle.read())
 
     print(f"build: {args.build} ({len(build_source)} bytes)")
+    surface = static_surface(build_source)
+    if "error" not in surface:
+        print(
+            "static surface (readable without running it): "
+            f"{surface['functions']} functions, {surface['ifs']} ifs, "
+            f"{surface['calls']} calls, {surface['statements']} statements"
+        )
     if targets:
         print(f"original string literals worth stealing: {len(targets)}")
 

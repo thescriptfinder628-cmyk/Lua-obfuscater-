@@ -244,6 +244,7 @@
         </select>
       </label>
       <label class="field">seed <input type="number" id="seed" value="7" min="0" step="1"></label>
+      <label class="switch"><input type="checkbox" id="loader"> encrypted loader</label>
       <label class="switch"><input type="checkbox" id="antidebug"> anti-debug</label>
       <label class="switch"><input type="checkbox" id="verify" checked> verify by running</label>
       <span class="spacer"></span>
@@ -280,7 +281,7 @@
         <tr><td>medium</td><td>encrypted strings and keys, encoded numbers, opaque predicates</td><td>~3–5×</td></tr>
         <tr><td>heavy</td><td>control-flow flattening, chunk wrapper, decoy functions</td><td>~5–8×</td></tr>
         <tr><td>insane</td><td>per-string bytecode VM instead of one fixed cipher</td><td>~7–10×</td></tr>
-        <tr><td>nightmare</td><td>everything, plus anti-debug integrity guards</td><td>~9–14×</td></tr>
+        <tr><td>nightmare</td><td>everything, plus an encrypted self-loading bootstrap and anti-debug guards — the file contains no readable program at all</td><td>~10–36×</td></tr>
       </tbody>
     </table>
   </section>
@@ -385,6 +386,7 @@ async function run() {
         target: $('target').value,
         seed: Number($('seed').value),
         anti_debug: $('antidebug').checked,
+        loader: $('loader').checked,
         brand: 'Forsakenis4',
         verify: $('verify').checked,
       }),
@@ -405,6 +407,7 @@ async function run() {
     ];
     if (s.flattened) parts.push(chip(`${s.flattened} bodies flattened`));
     if (s.string_mode && s.string_mode !== 'off') parts.push(chip(`strings: <span class="k">${s.string_mode}</span>`));
+    if (s.loader) parts.push(chip('self-loading bootstrap'));
     if (data.verified) parts.push(chip('verified ✓', 'ok'));
     if (data.warnings && data.warnings.length) {
       parts.push(`<span class="warnc">${data.warnings.join('; ').replace(/</g, '&lt;')}</span>`);

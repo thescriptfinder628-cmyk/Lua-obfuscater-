@@ -24,6 +24,9 @@ A self-contained blue web app (no build step, no CDN, no dependencies): paste Lu
 level and dialect, hit **Obfuscate**. The *verify by running* switch executes both versions
 server-side and refuses to return a build whose behaviour changed.
 
+To put it on the internet, see **[PUBLISHING.md](PUBLISHING.md)** — `render.yaml`, `Dockerfile`,
+`fly.toml` and `railway.json` are ready, so it is a three-click deploy.
+
 ---
 
 ## Before / after
@@ -84,7 +87,7 @@ lua-obfuscator input.lua --anti-debug --brand Forsakenis4
 | `medium` | encrypted strings & keys, encoded numbers, opaque predicates | ~3–5× |
 | `heavy` | control-flow flattening, chunk wrapper, decoy functions | ~5–8× |
 | `insane` | per-string bytecode VM instead of one cipher | ~7–10× |
-| `nightmare` | everything + anti-debug integrity guards, confusable names | ~9–14× |
+| `nightmare` | everything + an **encrypted self-loading bootstrap**, anti-debug guards | ~10–36× |
 
 ### Dialects (`--target`)
 
@@ -109,6 +112,7 @@ lua-obfuscator input.lua --anti-debug --brand Forsakenis4
 | `--strings {cipher,vm}` | string protection strategy |
 | `--flatten 0-3` | control-flow flattening intensity |
 | `--anti-debug` | emit runtime integrity guards |
+| `--loader` / `--no-loader` | hide the whole program in an encrypted bootstrap that `load`s itself (`nightmare` does this by default) |
 | `--brand NAME` | embed a hidden watermark (only recoverable by decoding) |
 | `--seed N` | reproducible builds |
 | `--names {short,wide,hash,confusable}` | identifier style |
@@ -196,6 +200,49 @@ program must eventually hand data to `print`, an HTTP client or the GPU in plain
 moment can be watched. No obfuscator on earth changes that.
 
 ---
+
+## The loader: nothing readable left in the file
+
+`--loader` (on by default in `nightmare`) is the last mile of static protection. The entire
+obfuscated program is compressed, encrypted, Base64-encoded and prepended with a checksum,
+then decoded **at run time** by a small bootstrap:
+
+```lua
+local <fail>=function(m) error("protected chunk: "..tostring(m),0) end
+-- [anti-debug guard, optionally]
+-- [string-VM decoder]
+local <blob>="…"                        -- the whole program, as ciphertext
+local <sum>=0
+for <i>=1,#<blob> do <sum>=(<sum>*31+(<blob>):byte(<i>))%2147483647 end
+if <sum>~=<expected> then <fail>("checksum mismatch") end
+local <load>=loadstring or load
+local <chunk>=<load>(<decoded>,"@protected")
+return <chunk>(...)
+```
+
+What that changes for an attacker reading the file:
+
+| | before | with the loader |
+|---|---|---|
+| `function` keywords in the file | dozens (real logic) | ~7 (the decoder only) |
+| `if` statements | all of them | 2 (guard + checksum) |
+| any original identifier | 0 (renamed) | 0 |
+| any original string literal | 0 | 0 |
+| program structure | visible, just ugly | **absent** |
+| edit one byte of the blob | n/a | `checksum mismatch`, refuses to run |
+
+Measured with `tools/attack_demo.py` on a 335-byte script:
+
+```
+static surface (readable without running it): 7 functions, 6 ifs, 22 calls, 67 statements
+EXACT literal recovered : 0/6
+```
+
+The honest part: this stops *reading* the file, not *running* it. The chunk has to exist in
+memory to execute, so a dumper that hooks `load` gets the plaintext of the inner chunk back —
+exactly as any packed binary can be dumped. Anti-debug (`--anti-debug`) raises that cost, and
+the string VM means the recovered chunk still has no readable literals in it. That is the
+ceiling for a self-contained file, and this is where it sits.
 
 ## Honest limits
 
