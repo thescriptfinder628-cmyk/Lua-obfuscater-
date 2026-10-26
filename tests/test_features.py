@@ -227,7 +227,29 @@ class StringVmTests(unittest.TestCase):
         ops = {tok.value for tok in tokenize(source) if tok.kind == OP}
         for op in ("&", "|", "~", "<<", ">>"):
             self.assertNotIn(op, ops)
-        self.assertNotIn("$", source)
+        # no unsubstituted placeholders (the byte-table literal legitimately
+        # contains a '$' character, so look for the tokens, not the character)
+        for token in stringvm.NAME_TOKENS:
+            self.assertNotIn("$" + token, source)
+
+    def test_runtime_avoids_the_classic_dump_hooks(self):
+        names = {t: "_v" + str(i) for i, t in enumerate(stringvm.NAME_TOKENS)}
+        source = stringvm.runtime_source(names)
+        # string.char is never called, so hooking it reveals nothing
+        self.assertNotIn("string.char", source)
+        # short strings are assembled with `..`, so table.concat rarely sees them
+        self.assertIn("table.concat", source)  # only the long-string fallback
+
+    def test_opcodes_are_permuted_per_payload(self):
+        import base64
+
+        rng = random.Random(1)
+        perms = set()
+        for _ in range(40):
+            raw = base64.b64decode(stringvm.encode(b"x", rng))
+            perms.add(tuple(raw[1:5]))
+        # more than one permutation of the four opcodes gets used
+        self.assertGreater(len(perms), 1)
 
     @unittest.skipUnless(HAVE_LUA, "lupa not installed")
     def test_vm_strings_execute_in_lua(self):

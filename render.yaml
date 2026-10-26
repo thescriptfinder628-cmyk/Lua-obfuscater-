@@ -1,0 +1,14 @@
+# Render Blueprint — free tier, gives you https://<name>.onrender.com
+# Deploy: push this repo, then Render -> New -> Blueprint -> pick the repo.
+services:
+  - type: web
+    name: forsakenis4-obfuscator
+    runtime: python
+    plan: free
+    buildCommand: pip install --upgrade pip && pip install . && pip install lupa
+    startCommand: python tools/playground.py
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"

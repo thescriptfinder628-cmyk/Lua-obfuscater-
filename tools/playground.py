@@ -65,6 +65,17 @@ def obfuscate_request(payload: dict) -> tuple[int, dict]:
     strings = payload.get("strings")
     if strings in ("cipher", "vm"):
         options.string_mode = strings
+    loader = payload.get("loader")
+    if isinstance(loader, bool):
+        options.loader = loader
+    self_check = payload.get("self_check")
+    if isinstance(self_check, bool):
+        options.self_check = self_check
+        if self_check:
+            options.loader = True
+    layers = payload.get("layers")
+    if isinstance(layers, int) and not isinstance(layers, bool):
+        options.layers = max(1, min(8, layers))
 
     try:
         result = obfuscate_source(code, options, filename="<playground>")
@@ -113,6 +124,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         path = self.path.split("?", 1)[0]
+        if path in ("/healthz", "/health"):
+            self._send(200, b'{"ok": true}', "application/json")
+            return
         if path in ("/", "/index.html"):
             try:
                 with open(PAGE, "rb") as handle:
@@ -148,8 +162,17 @@ class Handler(BaseHTTPRequestHandler):
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Lua obfuscator web playground")
-    parser.add_argument("--host", default="0.0.0.0", help="bind address (default 0.0.0.0)")
-    parser.add_argument("--port", type=int, default=8000, help="port (default 8000)")
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("HOST", "0.0.0.0"),
+        help="bind address (default 0.0.0.0)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("PORT", "8000")),
+        help="port (default $PORT, else 8000)",
+    )
     args = parser.parse_args(argv)
 
     server = ThreadingHTTPServer((args.host, args.port), Handler)

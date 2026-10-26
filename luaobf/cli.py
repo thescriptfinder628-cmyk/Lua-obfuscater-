@@ -26,7 +26,7 @@ levels:
   medium     + encrypted strings/numbers + opaque predicates  (default)
   heavy      + control-flow flattening + chunk wrapper + decoys
   insane     + per-string bytecode VM instead of a single cipher
-  nightmare  everything, including anti-debug guards and maximum noise
+  nightmare  everything, plus anti-debug guards and an encrypted self-loader
 
 targets (--target):
   auto   (default) keep the script's own requirements, emit the widest one
@@ -61,6 +61,33 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--flatten", type=int, metavar="0-3", help="control-flow flattening intensity")
     parser.add_argument("--anti-debug", action="store_true", help="add runtime anti-debug guards")
+    parser.add_argument(
+        "--loader",
+        dest="loader",
+        action="store_true",
+        default=None,
+        help="hide the whole program behind an encrypted self-loading bootstrap",
+    )
+    parser.add_argument(
+        "--no-loader",
+        dest="loader",
+        action="store_false",
+        help="write plain (obfuscated) Lua instead of a bootstrap",
+    )
+    parser.add_argument(
+        "--self-check",
+        dest="self_check",
+        action="store_true",
+        default=None,
+        help="refuse to run if the file itself is edited (implies --loader)",
+    )
+    parser.add_argument(
+        "--layers",
+        type=int,
+        default=None,
+        metavar="N",
+        help="nested bootstrap layers (default: 1, nightmare: 3)",
+    )
     parser.add_argument("--brand", metavar="NAME", help="embed a hidden watermark (recoverable only by decoding)")
 
     parser.add_argument("--no-rename", action="store_true", help="keep local variable names")
@@ -101,6 +128,13 @@ def options_from_args(args: argparse.Namespace) -> Options:
         opts.flatten = max(0, min(3, args.flatten))
     if args.anti_debug:
         opts.anti_debug = True
+    if args.loader is not None:
+        opts.loader = args.loader
+    if args.layers is not None:
+        opts.layers = max(1, min(8, args.layers))
+    if args.self_check:
+        opts.self_check = True
+        opts.loader = True
     if args.brand:
         opts.brand = args.brand
     if args.no_rename:

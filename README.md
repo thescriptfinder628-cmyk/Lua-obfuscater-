@@ -24,6 +24,9 @@ A self-contained blue web app (no build step, no CDN, no dependencies): paste Lu
 level and dialect, hit **Obfuscate**. The *verify by running* switch executes both versions
 server-side and refuses to return a build whose behaviour changed.
 
+To put it on the internet, see **[PUBLISHING.md](PUBLISHING.md)** — `render.yaml`, `Dockerfile`,
+`fly.toml` and `railway.json` are ready, so it is a three-click deploy.
+
 ---
 
 ## Before / after
@@ -84,7 +87,7 @@ lua-obfuscator input.lua --anti-debug --brand Forsakenis4
 | `medium` | encrypted strings & keys, encoded numbers, opaque predicates | ~3–5× |
 | `heavy` | control-flow flattening, chunk wrapper, decoy functions | ~5–8× |
 | `insane` | per-string bytecode VM instead of one cipher | ~7–10× |
-| `nightmare` | everything + anti-debug integrity guards, confusable names | ~9–14× |
+| `nightmare` | everything + an **encrypted self-loading bootstrap**, anti-debug guards | ~10–36× |
 
 ### Dialects (`--target`)
 
@@ -109,6 +112,9 @@ lua-obfuscator input.lua --anti-debug --brand Forsakenis4
 | `--strings {cipher,vm}` | string protection strategy |
 | `--flatten 0-3` | control-flow flattening intensity |
 | `--anti-debug` | emit runtime integrity guards |
+| `--loader` / `--no-loader` | hide the whole program in an encrypted bootstrap that `load`s itself (`nightmare` does this by default) |
+| `--layers N` | nested bootstraps: decrypting one yields another (default 1, `nightmare` 3) |
+| `--self-check` | refuse to run unless the file is byte-for-byte intact (implies `--loader`) |
 | `--brand NAME` | embed a hidden watermark (only recoverable by decoding) |
 | `--seed N` | reproducible builds |
 | `--names {short,wide,hash,confusable}` | identifier style |
@@ -170,6 +176,108 @@ stdout, exit status and the *kind* of any error.
 
 ---
 
+## Attack it yourself
+
+The project ships the attacker, because a protection claim you cannot measure is marketing:
+
+```bash
+python tools/attack_demo.py protected.lua --original script.lua
+```
+
+It runs your build with the instrumentation a real analyst uses — `string.char` hook,
+`table.concat` hook, a registry/memory walk, and plain output observation — and reports how
+much it got back. Measured on a script with 6 string literals (including an API key):
+
+| Build | `string.char` + `table.concat` | `load` hook (dumper) | memory walk | output watch |
+|-------|-------------------------------|---------------------|-------------|--------------|
+| `medium` (single cipher) | **6/6 literals recovered** | 6/6 | 6/6 | 6/6 |
+| `nightmare` (VM + loader + guards) | **0/6** | **blocked** — build refuses to run | 0/6* | **6/6** |
+
+`*` the walk cannot see function locals — a real process-memory dump can, so treat that cell as
+"still vulnerable", not as safe.
+
+So the honest summary of what changed: the **cheap, scriptable dumpers are closed** — the thing
+that lets a beginner steal your keys in ten lines is gone. What remains is observation: your
+program must eventually hand data to `print`, an HTTP client or the GPU in plaintext, and that
+moment can be watched. No obfuscator on earth changes that.
+
+---
+
+## The loader: nothing readable left in the file
+
+`--loader` (on by default in `nightmare`) is the last mile of static protection. The whole
+obfuscated program is cut into 64-byte segments, each encrypted with its **own** opcode
+permutation and key, and handed to `load` one piece at a time:
+
+```lua
+local <fail>=function(m) error("protected chunk: "..tostring(m),0) end
+-- integrity guards (see below)
+-- [string-VM decoder]
+local <segs>={ "…", "…", "…" }            -- the program, N encrypted segments
+local <acc>,<i>=0,1
+local function <reader>()                  -- decodes one 64-byte piece per call
+  … if <acc>~=<expected> then <fail>("checksum mismatch") end
+end
+local <chunk>=(loadstring or load)(<reader>,"@protected")
+return <chunk>(...)
+```
+
+Four separate things make this different from "encrypt the source and `load` it":
+
+| | why it matters |
+|---|---|
+| **segments** | the plaintext is never one string in memory — a dump at any instant holds ~64 bytes |
+| **a reader, not a string** | the one-line dump (`load = function(s) print(s) end`) prints `function` |
+| **guards before the load** | a hooked `load`/`loadstring`/`string.dump` or an installed debug hook makes the build refuse to run |
+| **layers** | `--layers N` nests bootstraps; decrypting one yields another encrypted bootstrap, guards included |
+| **self-check** | `--self-check`: the file hashes itself and hands a token to the layer below, so *deleting* the guards is as fatal as editing them |
+
+How the guards work: a replaced `load` is a **Lua closure**, the real one is a **C function**, and
+`debug.getinfo(fn, "S").what` says which. So the build spends one `pcall` checking its own
+toolchain before it decrypts anything. Measured:
+
+```
+$ lua-obfuscator script.lua -l nightmare --stats
+  output_bytes: 30789        # 335 B in
+  loader: true   layers: 2
+$ python tools/attack_demo.py build.lua --original script.lua
+  static surface: 12 functions, 11 ifs, 35 calls, 94 statements
+  strategy 'loadhook':  blocked (protected chunk: integrity check failed)
+  EXACT literal recovered : 0/6
+```
+
+### Self-check (`--self-check`)
+
+The guards above can be *read* out of the file by anyone who opens it — so a determined person
+deletes the three anti-debug lines and hooks `load` again. `--self-check` closes that: before a
+single byte is decrypted, the file reads itself, checksums the guarded region, and passes a token
+to the layer underneath. The layer refuses to run without the token, so **deleting the guards
+breaks the build exactly like editing them does**.
+
+```
+$ lua protected.lua                                # untouched
+https://api.example.com/v1/charge?key=…            # works
+$ lua protected_edited.lua                         # one byte changed
+protected chunk: integrity check failed            # refuses
+$ lua protected_guards_removed.lua                 # guards deleted
+protected chunk: integrity check failed            # still refuses
+```
+
+Two honest notes. First, line-ending conversion (`LF` → `CRLF`) is tolerated, so a Windows
+checkout or clipboard copy still runs. Second, this is a checksum, not a signature: the digest
+sits outside the hashed region — it cannot contain itself — so someone who understands the format
+can recompute it. Without a server there is no secret to sign with. Treat it as a locked door,
+not a vault.
+
+### The ceiling, with no spin
+
+The honest ceiling, once, with no spin: the program has to run, so **watching it run** still wins.
+`attack_demo` shows that as `output 6/6` — hook `print` and you see the key because the script
+prints it. Nobody can protect data from the program that legitimately uses it. What is gone is
+the entire *offline* half: you cannot read the file, you cannot grep it, you cannot decompile it,
+and the standard dump is refused by the build itself. To get past the guard you must first edit a
+file you cannot read, and every layer is guarded again.
+
 ## Honest limits
 
 You asked for something that cannot be deobfuscated. That does not exist for *any* tool, and
@@ -184,9 +292,11 @@ here is exactly why:
 * **Bytecode is separate.** `luac` output needs its own protection.
 
 What this tool *does* achieve is the practical ceiling: no readable names, strings, structure
-or comments; execution order hidden behind randomized states; string recovery turned into a
-per-string reverse-engineering job; and a verified-identical build. That stops casual copying,
-"open it in an editor", and every grep-based attack — and makes serious analysis expensive.
+or comments; execution order hidden behind randomized states; a string layer with no fixed
+algorithm, no fixed opcode dispatch, and no `string.char`/`table.concat` for a dumper to hook
+(measured above: 0/6 recovered by the cheap dumpers); and a verified-identical build. That stops
+casual copying, "open it in an editor", every grep-based attack, and the standard Lua string
+dumpers — and makes serious analysis expensive.
 
 Also be aware: renaming changes identifiers that appear in **error messages** and
 `debug.getinfo`; `--anti-debug` will fire if a tracing hook is installed (some anti-cheats
@@ -208,6 +318,7 @@ luaobf/
   obfuscator.py cli.py verify.py      pipeline, CLI, differential checker
 playground/index.html                 the blue Forsakenis4 web app
 tools/playground.py                   zero-dependency server for it
+tools/attack_demo.py                  measures how much an attacker recovers
 tools/check_realworld.py              optional real-library stress test
 tests/                                124 tests + a Lua corpus
 ```
@@ -225,6 +336,10 @@ against the original's output. Development was driven by them — they caught a 
 mismatch, a mathematically wrong opaque predicate (`J*J+1` is not always odd), a shuffled
 execution order in the flattener, `repeat`/`until` scope breakage, and `break` escaping the
 state machine.
+
+The attack tool is part of the suite too, so the security claims can never silently rot:
+`tests/test_attack_demo.py` asserts that a cipher build *does* leak to cheap hooks and a
+hardened build *does not*.
 
 Optional real-world check (MIT-licensed libraries from GitHub):
 
