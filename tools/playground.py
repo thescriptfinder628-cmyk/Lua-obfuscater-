@@ -68,6 +68,11 @@ def obfuscate_request(payload: dict) -> tuple[int, dict]:
     loader = payload.get("loader")
     if isinstance(loader, bool):
         options.loader = loader
+    self_check = payload.get("self_check")
+    if isinstance(self_check, bool):
+        options.self_check = self_check
+        if self_check:
+            options.loader = True
     layers = payload.get("layers")
     if isinstance(layers, int) and not isinstance(layers, bool):
         options.layers = max(1, min(8, layers))

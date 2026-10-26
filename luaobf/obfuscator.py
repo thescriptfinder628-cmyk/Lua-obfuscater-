@@ -54,6 +54,8 @@ class Options:
     chunk_name: str = "protected"
     #: number of nested encrypted bootstraps (1 = single layer)
     layers: int = 1
+    #: verify a checksum of the file itself before decoding anything
+    self_check: bool = False
     #: hidden watermark, recoverable only by decoding
     brand: str = ""
 
@@ -331,6 +333,7 @@ def obfuscate_source(source: str, options: Options | None = None, filename: str 
             anti_debug=opts.anti_debug,
             chunk_name=opts.chunk_name,
             layers=opts.layers,
+            self_check=opts.self_check,
         )
 
     # ---- sanity: the output must parse for the target ---------------------
@@ -351,6 +354,7 @@ def obfuscate_source(source: str, options: Options | None = None, filename: str 
         "string_mode": opts.string_mode if opts.encrypt_strings else "off",
         "loader": bool(opts.loader),
         "layers": int(opts.layers) if opts.loader else 0,
+        "self_check": bool(opts.self_check and opts.loader),
     }
     if opts.strict and warnings:
         raise RuntimeError("; ".join(warnings))

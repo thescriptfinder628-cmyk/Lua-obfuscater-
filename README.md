@@ -114,6 +114,7 @@ lua-obfuscator input.lua --anti-debug --brand Forsakenis4
 | `--anti-debug` | emit runtime integrity guards |
 | `--loader` / `--no-loader` | hide the whole program in an encrypted bootstrap that `load`s itself (`nightmare` does this by default) |
 | `--layers N` | nested bootstraps: decrypting one yields another (default 1, `nightmare` 3) |
+| `--self-check` | refuse to run unless the file is byte-for-byte intact (implies `--loader`) |
 | `--brand NAME` | embed a hidden watermark (only recoverable by decoding) |
 | `--seed N` | reproducible builds |
 | `--names {short,wide,hash,confusable}` | identifier style |
@@ -229,6 +230,7 @@ Four separate things make this different from "encrypt the source and `load` it"
 | **a reader, not a string** | the one-line dump (`load = function(s) print(s) end`) prints `function` |
 | **guards before the load** | a hooked `load`/`loadstring`/`string.dump` or an installed debug hook makes the build refuse to run |
 | **layers** | `--layers N` nests bootstraps; decrypting one yields another encrypted bootstrap, guards included |
+| **self-check** | `--self-check`: the file hashes itself and hands a token to the layer below, so *deleting* the guards is as fatal as editing them |
 
 How the guards work: a replaced `load` is a **Lua closure**, the real one is a **C function**, and
 `debug.getinfo(fn, "S").what` says which. So the build spends one `pcall` checking its own
@@ -243,6 +245,31 @@ $ python tools/attack_demo.py build.lua --original script.lua
   strategy 'loadhook':  blocked (protected chunk: integrity check failed)
   EXACT literal recovered : 0/6
 ```
+
+### Self-check (`--self-check`)
+
+The guards above can be *read* out of the file by anyone who opens it — so a determined person
+deletes the three anti-debug lines and hooks `load` again. `--self-check` closes that: before a
+single byte is decrypted, the file reads itself, checksums the guarded region, and passes a token
+to the layer underneath. The layer refuses to run without the token, so **deleting the guards
+breaks the build exactly like editing them does**.
+
+```
+$ lua protected.lua                                # untouched
+https://api.example.com/v1/charge?key=…            # works
+$ lua protected_edited.lua                         # one byte changed
+protected chunk: integrity check failed            # refuses
+$ lua protected_guards_removed.lua                 # guards deleted
+protected chunk: integrity check failed            # still refuses
+```
+
+Two honest notes. First, line-ending conversion (`LF` → `CRLF`) is tolerated, so a Windows
+checkout or clipboard copy still runs. Second, this is a checksum, not a signature: the digest
+sits outside the hashed region — it cannot contain itself — so someone who understands the format
+can recompute it. Without a server there is no secret to sign with. Treat it as a locked door,
+not a vault.
+
+### The ceiling, with no spin
 
 The honest ceiling, once, with no spin: the program has to run, so **watching it run** still wins.
 `attack_demo` shows that as `output 6/6` — hook `print` and you see the key because the script

@@ -75,6 +75,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="write plain (obfuscated) Lua instead of a bootstrap",
     )
     parser.add_argument(
+        "--self-check",
+        dest="self_check",
+        action="store_true",
+        default=None,
+        help="refuse to run if the file itself is edited (implies --loader)",
+    )
+    parser.add_argument(
         "--layers",
         type=int,
         default=None,
@@ -125,6 +132,9 @@ def options_from_args(args: argparse.Namespace) -> Options:
         opts.loader = args.loader
     if args.layers is not None:
         opts.layers = max(1, min(8, args.layers))
+    if args.self_check:
+        opts.self_check = True
+        opts.loader = True
     if args.brand:
         opts.brand = args.brand
     if args.no_rename:

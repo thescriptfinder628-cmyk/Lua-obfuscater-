@@ -10,6 +10,7 @@ detected before anything is decrypted.
 import glob
 import os
 import re
+import tempfile
 import unittest
 
 from luaobf.loader import CHECKSUM_MOD, SEGMENT_SIZE, checksum
@@ -108,6 +109,13 @@ class LoaderStructureTests(unittest.TestCase):
         self.assertNotIn("Forsakenis4", code)
         self.assertIn('"protected chunk: "', code)
 
+    def test_self_check_reports_and_nests(self):
+        result = build(self_check=True)
+        self.assertTrue(result.stats["self_check"])
+        self.assertFalse(build().stats["self_check"])
+        # the checksum literal sits outside the hashed region
+        self.assertRegex(result.code, r'local \w+="\d+"')
+
     def test_layers_nest(self):
         one = build(layers=1).code
         three = build(layers=3).code
@@ -168,6 +176,55 @@ class LoaderBehaviourTests(unittest.TestCase):
         self.assertTrue(kinds)
         self.assertIn("function", kinds)
         self.assertNotIn("string", kinds)
+
+    def _run_file(self, text):
+        """Run a build the way a user would: from a file, not a string."""
+        handle = tempfile.NamedTemporaryFile("w", suffix=".lua", delete=False, encoding="utf-8")
+        handle.write(text)
+        handle.close()
+        runtime = LuaRuntime(unpack_returned_tuples=True)
+        runtime.execute(
+            '__o = {} print = function(...) local t = {} '
+            'for i = 1, select("#", ...) do t[#t + 1] = tostring((select(i, ...))) end '
+            '__o[#__o + 1] = table.concat(t, "\\t") end'
+        )
+        error = None
+        try:
+            runtime.eval("function(p) local f = assert(loadfile(p)) return f() end")(handle.name)
+        except Exception as exc:  # noqa: BLE001
+            error = str(exc)
+        finally:
+            os.unlink(handle.name)
+        output = [runtime.eval("__o")[i] for i in range(1, len(runtime.eval("__o")) + 1)]
+        return output, error
+
+    def test_self_check_runs_from_a_file(self):
+        code = build(self_check=True, seed=11).code
+        output, error = self._run_file(code)
+        self.assertIsNone(error)
+        self.assertEqual(output, run_lua(SOURCE).output)
+
+    def test_self_check_refuses_an_edited_file(self):
+        code = build(self_check=True, seed=11).code
+        middle = len(code) // 2
+        flipped = "B" if code[middle] != "B" else "C"
+        output, error = self._run_file(code[:middle] + flipped + code[middle + 1 :])
+        self.assertIsNotNone(error)
+        self.assertIn("integrity check failed", error)
+        self.assertEqual(output, [])
+
+    def test_self_check_survives_line_ending_conversion(self):
+        code = build(self_check=True, seed=12).code
+        output, error = self._run_file(code.replace("\n", "\r\n"))
+        self.assertIsNone(error, error)
+        self.assertEqual(output, run_lua(SOURCE).output)
+
+    def test_deleting_the_guards_breaks_the_build(self):
+        code = build(self_check=True, seed=13).code
+        head_end = code.index("\n--")
+        output, error = self._run_file(code[head_end + 1 :])
+        self.assertIsNotNone(error)
+        self.assertEqual(output, [])
 
     def test_corpus_runs_through_the_loader(self):
         for path in CORPUS:
