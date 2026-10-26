@@ -80,6 +80,9 @@ def _first_line(text: str) -> str:
 
     line = text.strip().splitlines()[0]
     line = re.sub(r"^\[string [^\]]*\]", "", line)
+    # a run from a file reports "LuaError: /tmp/xyz.lua:39: …"; the path and the
+    # line number both move between the original and the build
+    line = re.sub(r"[^\s:]*\.lua:\d+:\s*", "", line)
     line = re.sub(r"^[^\s:]+\.lua:\d+:", "", line)
     line = re.sub(r":\d+:", ":", line)
     # identifiers are renamed on purpose, so an error mentioning `x` in the
@@ -106,11 +109,22 @@ def _run_with_lupa(source: str, timeout: float) -> RunOutput:
     )
     status = 0
     stderr = ""
+    # run from a file, not a string: that is how the user will run it, and
+    # --self-check builds refuse to start when they cannot read their own source
+    handle, path = tempfile.mkstemp(suffix=".lua")
     try:
-        runtime.execute(source)
-    except Exception as exc:  # noqa: BLE001
-        status = 1
-        stderr = f"{type(exc).__name__}: {exc}"
+        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            stream.write(source)
+        try:
+            runtime.eval("function(p) local f = assert(loadfile(p)) return f() end")(path)
+        except Exception as exc:  # noqa: BLE001
+            status = 1
+            stderr = f"{type(exc).__name__}: {exc}"
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
     out = runtime.eval("__result()") or ""
     return RunOutput(out, stderr, status)
 
