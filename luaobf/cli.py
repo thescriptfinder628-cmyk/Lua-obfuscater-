@@ -74,6 +74,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         help="write plain (obfuscated) Lua instead of a bootstrap",
     )
+    parser.add_argument(
+        "--layers",
+        type=int,
+        default=None,
+        metavar="N",
+        help="nested bootstrap layers (default: 1, nightmare: 3)",
+    )
     parser.add_argument("--brand", metavar="NAME", help="embed a hidden watermark (recoverable only by decoding)")
 
     parser.add_argument("--no-rename", action="store_true", help="keep local variable names")
@@ -116,6 +123,8 @@ def options_from_args(args: argparse.Namespace) -> Options:
         opts.anti_debug = True
     if args.loader is not None:
         opts.loader = args.loader
+    if args.layers is not None:
+        opts.layers = max(1, min(8, args.layers))
     if args.brand:
         opts.brand = args.brand
     if args.no_rename:

@@ -113,6 +113,7 @@ lua-obfuscator input.lua --anti-debug --brand Forsakenis4
 | `--flatten 0-3` | control-flow flattening intensity |
 | `--anti-debug` | emit runtime integrity guards |
 | `--loader` / `--no-loader` | hide the whole program in an encrypted bootstrap that `load`s itself (`nightmare` does this by default) |
+| `--layers N` | nested bootstraps: decrypting one yields another (default 1, `nightmare` 3) |
 | `--brand NAME` | embed a hidden watermark (only recoverable by decoding) |
 | `--seed N` | reproducible builds |
 | `--names {short,wide,hash,confusable}` | identifier style |
@@ -186,10 +187,10 @@ It runs your build with the instrumentation a real analyst uses — `string.char
 `table.concat` hook, a registry/memory walk, and plain output observation — and reports how
 much it got back. Measured on a script with 6 string literals (including an API key):
 
-| Build | `string.char` + `table.concat` | memory walk | output watch |
-|-------|-------------------------------|-------------|--------------|
-| `medium` (single cipher) | **6/6 literals recovered** | 6/6 | 6/6 |
-| `nightmare` (per-string VM) | **0/6 recovered** | 0/6* | **6/6** |
+| Build | `string.char` + `table.concat` | `load` hook (dumper) | memory walk | output watch |
+|-------|-------------------------------|---------------------|-------------|--------------|
+| `medium` (single cipher) | **6/6 literals recovered** | 6/6 | 6/6 | 6/6 |
+| `nightmare` (VM + loader + guards) | **0/6** | **blocked** — build refuses to run | 0/6* | **6/6** |
 
 `*` the walk cannot see function locals — a real process-memory dump can, so treat that cell as
 "still vulnerable", not as safe.
@@ -203,46 +204,52 @@ moment can be watched. No obfuscator on earth changes that.
 
 ## The loader: nothing readable left in the file
 
-`--loader` (on by default in `nightmare`) is the last mile of static protection. The entire
-obfuscated program is compressed, encrypted, Base64-encoded and prepended with a checksum,
-then decoded **at run time** by a small bootstrap:
+`--loader` (on by default in `nightmare`) is the last mile of static protection. The whole
+obfuscated program is cut into 64-byte segments, each encrypted with its **own** opcode
+permutation and key, and handed to `load` one piece at a time:
 
 ```lua
 local <fail>=function(m) error("protected chunk: "..tostring(m),0) end
--- [anti-debug guard, optionally]
+-- integrity guards (see below)
 -- [string-VM decoder]
-local <blob>="…"                        -- the whole program, as ciphertext
-local <sum>=0
-for <i>=1,#<blob> do <sum>=(<sum>*31+(<blob>):byte(<i>))%2147483647 end
-if <sum>~=<expected> then <fail>("checksum mismatch") end
-local <load>=loadstring or load
-local <chunk>=<load>(<decoded>,"@protected")
+local <segs>={ "…", "…", "…" }            -- the program, N encrypted segments
+local <acc>,<i>=0,1
+local function <reader>()                  -- decodes one 64-byte piece per call
+  … if <acc>~=<expected> then <fail>("checksum mismatch") end
+end
+local <chunk>=(loadstring or load)(<reader>,"@protected")
 return <chunk>(...)
 ```
 
-What that changes for an attacker reading the file:
+Four separate things make this different from "encrypt the source and `load` it":
 
-| | before | with the loader |
-|---|---|---|
-| `function` keywords in the file | dozens (real logic) | ~7 (the decoder only) |
-| `if` statements | all of them | 2 (guard + checksum) |
-| any original identifier | 0 (renamed) | 0 |
-| any original string literal | 0 | 0 |
-| program structure | visible, just ugly | **absent** |
-| edit one byte of the blob | n/a | `checksum mismatch`, refuses to run |
+| | why it matters |
+|---|---|
+| **segments** | the plaintext is never one string in memory — a dump at any instant holds ~64 bytes |
+| **a reader, not a string** | the one-line dump (`load = function(s) print(s) end`) prints `function` |
+| **guards before the load** | a hooked `load`/`loadstring`/`string.dump` or an installed debug hook makes the build refuse to run |
+| **layers** | `--layers N` nests bootstraps; decrypting one yields another encrypted bootstrap, guards included |
 
-Measured with `tools/attack_demo.py` on a 335-byte script:
+How the guards work: a replaced `load` is a **Lua closure**, the real one is a **C function**, and
+`debug.getinfo(fn, "S").what` says which. So the build spends one `pcall` checking its own
+toolchain before it decrypts anything. Measured:
 
 ```
-static surface (readable without running it): 7 functions, 6 ifs, 22 calls, 67 statements
-EXACT literal recovered : 0/6
+$ lua-obfuscator script.lua -l nightmare --stats
+  output_bytes: 30789        # 335 B in
+  loader: true   layers: 2
+$ python tools/attack_demo.py build.lua --original script.lua
+  static surface: 12 functions, 11 ifs, 35 calls, 94 statements
+  strategy 'loadhook':  blocked (protected chunk: integrity check failed)
+  EXACT literal recovered : 0/6
 ```
 
-The honest part: this stops *reading* the file, not *running* it. The chunk has to exist in
-memory to execute, so a dumper that hooks `load` gets the plaintext of the inner chunk back —
-exactly as any packed binary can be dumped. Anti-debug (`--anti-debug`) raises that cost, and
-the string VM means the recovered chunk still has no readable literals in it. That is the
-ceiling for a self-contained file, and this is where it sits.
+The honest ceiling, once, with no spin: the program has to run, so **watching it run** still wins.
+`attack_demo` shows that as `output 6/6` — hook `print` and you see the key because the script
+prints it. Nobody can protect data from the program that legitimately uses it. What is gone is
+the entire *offline* half: you cannot read the file, you cannot grep it, you cannot decompile it,
+and the standard dump is refused by the build itself. To get past the guard you must first edit a
+file you cannot read, and every layer is guarded again.
 
 ## Honest limits
 

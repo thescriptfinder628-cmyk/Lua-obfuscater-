@@ -52,6 +52,8 @@ class Options:
     loader: bool = False
     #: name shown in error messages from the loader
     chunk_name: str = "protected"
+    #: number of nested encrypted bootstraps (1 = single layer)
+    layers: int = 1
     #: hidden watermark, recoverable only by decoding
     brand: str = ""
 
@@ -107,6 +109,7 @@ PRESETS: dict[str, Options] = {
         string_mode="vm",
         anti_debug=True,
         loader=True,
+        layers=3,
     ),
 }
 
@@ -327,6 +330,7 @@ def obfuscate_source(source: str, options: Options | None = None, filename: str 
             label="protected chunk",
             anti_debug=opts.anti_debug,
             chunk_name=opts.chunk_name,
+            layers=opts.layers,
         )
 
     # ---- sanity: the output must parse for the target ---------------------
@@ -346,6 +350,7 @@ def obfuscate_source(source: str, options: Options | None = None, filename: str 
         "flattened": flattened,
         "string_mode": opts.string_mode if opts.encrypt_strings else "off",
         "loader": bool(opts.loader),
+        "layers": int(opts.layers) if opts.loader else 0,
     }
     if opts.strict and warnings:
         raise RuntimeError("; ".join(warnings))

@@ -55,6 +55,8 @@ end
 
 local __concat = table.concat
 local __char = string.char
+local __load = load
+local __loadstring = loadstring
 local __sub = string.sub
 
 local __print = print
@@ -72,6 +74,31 @@ function __install(mode)
       __record(result)
       return result
     end
+  elseif mode == "loadhook" then
+    -- the attack that matters against a loader: replace `load`, keep whatever it
+    -- is handed, and drive it if it is a reader function
+    local real = loadstring or load
+    local function grab(value)
+      if type(value) == "string" then
+        __record(value)
+      elseif type(value) == "function" then
+        local parts = {}
+        pcall(function()
+          for _ = 1, 20000 do
+            local piece = value()
+            if piece == nil or piece == "" then break end
+            parts[#parts + 1] = piece
+          end
+        end)
+        __record(table.concat(parts))
+      end
+    end
+    local function fake(first, second)
+      grab(first)
+      return real(first, second)
+    end
+    load = fake
+    if loadstring then loadstring = fake end
   elseif mode == "char" then
     string.char = function(...)
       local b = __char(...)
@@ -86,6 +113,8 @@ function __restore()
   table.concat = __concat
   string.char = __char
   print = __print
+  load = __load
+  if __loadstring then loadstring = __loadstring end
 end
 
 function __scan()
@@ -150,6 +179,7 @@ STRATEGIES = {
     "memory": (None, True),
     "unhooked": (None, False),
     "output": ("output", False),
+    "loadhook": ("loadhook", False),
 }
 
 
@@ -217,7 +247,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"original string literals worth stealing: {len(targets)}")
 
     all_found: set[str] = set()
-    for mode in ("concat", "char", "memory", "unhooked", "output"):
+    for mode in ("concat", "char", "memory", "unhooked", "loadhook", "output"):
         found, ok, err = attack(build_source, mode, args.limit)
         unique = set(found)
         all_found |= unique

@@ -68,6 +68,9 @@ def obfuscate_request(payload: dict) -> tuple[int, dict]:
     loader = payload.get("loader")
     if isinstance(loader, bool):
         options.loader = loader
+    layers = payload.get("layers")
+    if isinstance(layers, int) and not isinstance(layers, bool):
+        options.layers = max(1, min(8, layers))
 
     try:
         result = obfuscate_source(code, options, filename="<playground>")

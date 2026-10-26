@@ -244,7 +244,9 @@
         </select>
       </label>
       <label class="field">seed <input type="number" id="seed" value="7" min="0" step="1"></label>
-      <label class="switch"><input type="checkbox" id="loader"> encrypted loader</label>
+      <label class="switch"><input type="checkbox" id="loader"> encrypted loader
+        <select id="layers" title="nested layers"><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option></select>
+      </label>
       <label class="switch"><input type="checkbox" id="antidebug"> anti-debug</label>
       <label class="switch"><input type="checkbox" id="verify" checked> verify by running</label>
       <span class="spacer"></span>
@@ -387,6 +389,7 @@ async function run() {
         seed: Number($('seed').value),
         anti_debug: $('antidebug').checked,
         loader: $('loader').checked,
+        layers: Number($('layers').value),
         brand: 'Forsakenis4',
         verify: $('verify').checked,
       }),
@@ -407,7 +410,7 @@ async function run() {
     ];
     if (s.flattened) parts.push(chip(`${s.flattened} bodies flattened`));
     if (s.string_mode && s.string_mode !== 'off') parts.push(chip(`strings: <span class="k">${s.string_mode}</span>`));
-    if (s.loader) parts.push(chip('self-loading bootstrap'));
+    if (s.loader) parts.push(chip(`self-loading bootstrap \u00d7${s.layers || 1}`));
     if (data.verified) parts.push(chip('verified ✓', 'ok'));
     if (data.warnings && data.warnings.length) {
       parts.push(`<span class="warnc">${data.warnings.join('; ').replace(/</g, '&lt;')}</span>`);
